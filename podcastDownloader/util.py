@@ -145,12 +145,15 @@ def _prompt_credentials() -> tuple:
     return username, password
 
 
-def login(session: requests.Session) -> bool:
+def login(
+    session: requests.Session,
+    credentials: tuple[str, str] | None = None,
+) -> bool:
     """
-    Prompt for credentials and POST them to the F4WOnline login endpoint.
+    Authenticate with F4WOnline and mutate *session* in-place.
 
-    Mutates the session in-place so all subsequent requests carry the
-    authenticated cookies automatically.
+    Pass ``credentials=(username, password)`` for non-interactive use (e.g. a
+    web backend).  Omit it to fall back to the interactive stdin/getpass prompt.
 
     Returns True on success, False on failure.
     """
@@ -192,7 +195,7 @@ def login(session: requests.Session) -> bool:
         username_field = username_field or "username"
         password_field = password_field or "password"
 
-    username, password = _prompt_credentials()
+    username, password = credentials if credentials is not None else _prompt_credentials()
     payload[username_field] = username
     payload[password_field] = password
 
