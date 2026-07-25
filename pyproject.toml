@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "f4w-archive-downloader"
+version = "0.3.0"
+description = "Download and organise podcasts and newsletters from the F4W Online archive"
+requires-python = ">=3.9"
+dependencies = [
+    "beautifulsoup4>=4.12.3",
+    "mutagen>=1.47.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+f4w-download = "podcastDownloader.runner:main"
+f4w-newsletters = "newsletterDownloader.runner:main"
+
+[tool.setuptools.packages.find]
+include = ["podcastDownloader*", "f4wCommon*", "newsletterDownloader*"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

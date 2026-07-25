@@ -33,7 +33,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from util import (
+from f4wCommon.dates import in_date_range, parse_date_arg
+
+from podcastDownloader.util import (
     DATE_FORMAT_IN,
     DEFAULT_DOWNLOAD_PATH,
     SHOW_SLUGS,
@@ -150,25 +152,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _parse_date_arg(value: str | None) -> datetime | None:
     """Parse a CLI date string. Exits with an error message on bad input."""
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, DATE_FORMAT_IN)
-    except ValueError:
-        print(f"[error] Could not parse date '{value}'. Expected format: 'January 1, 2025'.")
-        sys.exit(1)
+    return parse_date_arg(value, DATE_FORMAT_IN, "January 1, 2025")
 
 
-def _in_date_range(episode: dict, start: datetime | None, end: datetime | None) -> bool:
-    """Return True if the episode falls within the given date range."""
-    dt = episode.get("datetime")
-    if dt is None:
-        return True  # can't determine date — include by default
-    if start and dt < start:
-        return False
-    if end and dt > end:
-        return False
-    return True
+_in_date_range = in_date_range
 
 
 # ---------------------------------------------------------------------------

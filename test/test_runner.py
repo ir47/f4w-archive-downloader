@@ -4,13 +4,13 @@ from datetime import datetime
 from unittest import TestCase, main
 from unittest.mock import patch
 
-from runner import (
+from podcastDownloader.runner import (
     _build_parser,
     _in_date_range,
     _parse_date_arg,
     _print_show_list,
 )
-from util import SHOW_SLUGS
+from podcastDownloader.util import SHOW_SLUGS
 
 
 # ---------------------------------------------------------------------------

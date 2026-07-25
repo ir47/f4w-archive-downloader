@@ -1,12 +1,13 @@
 """
 util.py — F4WOnline Podcast Downloader
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Shared helpers for authentication, scraping, downloading, and ID3 tagging.
+Podcast-specific scraping and ID3 tagging. Site-agnostic auth/HTTP/date/
+filesystem helpers live in the shared f4wCommon package and are re-exported
+here for backwards compatibility.
 """
 
 from __future__ import annotations
 
-import getpass
 import re
 import time
 from datetime import datetime
@@ -28,12 +29,37 @@ from mutagen.id3 import (
     WOAS,   # Official audio source URL (episode page URL)
 )
 
+from f4wCommon.auth import (
+    DEFAULT_LOGIN_URL as LOGIN_URL,
+    find_input_name as _find_input_name,
+    login as _f4w_login,
+    prompt_credentials as _prompt_credentials,
+)
+from f4wCommon.dates import enrich_with_date, parse_date
+from f4wCommon.fsutil import (
+    build_hierarchical_path,
+    generate_download_directories,
+    sanitize_filename,
+)
+from f4wCommon.http import (
+    HTTP_RETRY_COUNT,
+    HTTP_TIMEOUT_DOWNLOAD,
+    REQUEST_HEADERS,
+    create_session,
+    fetch_page as _fetch_page,
+    stream_download,
+)
+from f4wCommon.scrape import (
+    extract_time_element_date,
+    find_content_container,
+    get_total_pages,
+)
+
 
 # ---------------------------------------------------------------------------
 # Site URLs
 # ---------------------------------------------------------------------------
 
-LOGIN_URL = "https://account.f4wonline.com/login"
 CATEGORY_BASE = "https://www.f4wonline.com/category/podcasts/"
 MEDIA_BASE = "https://media001.f4wonline.com/dmdocuments/"
 
@@ -41,19 +67,6 @@ MEDIA_BASE = "https://media001.f4wonline.com/dmdocuments/"
 # ---------------------------------------------------------------------------
 # HTTP headers
 # ---------------------------------------------------------------------------
-
-REQUEST_HEADERS: dict = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,*/*;q=0.8"
-    ),
-    "Referer": "https://archive.f4wonline.com/",
-}
 
 DOWNLOAD_HEADERS: dict = {
     **REQUEST_HEADERS,
@@ -104,157 +117,29 @@ SHOW_SLUGS: dict = {
 # ---------------------------------------------------------------------------
 
 DEFAULT_DOWNLOAD_PATH = Path.home() / "Downloads" / "F4WPodcasts"
-DOWNLOAD_CHUNK_SIZE = 65536     # bytes per chunk when streaming MP3s
-HTTP_TIMEOUT_PAGE = 15          # seconds — page fetches
-HTTP_TIMEOUT_DOWNLOAD = 30      # seconds — MP3 downloads
 HTTP_TIMEOUT_THUMBNAIL = 10     # seconds — thumbnail image fetches
-HTTP_RETRY_COUNT = 3            # attempts before giving up on a page fetch
-HTTP_RETRY_DELAY = 2.0          # base seconds between retries (multiplied by attempt)
 MIN_DESCRIPTION_LENGTH = 40     # minimum paragraph character length to include in description
+
+_MP3_LINK_RE = re.compile(r"f4wonline\.com.*\.mp3$", re.I)
 
 
 # ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------
 
-def create_session() -> requests.Session:
-    """Return a new requests Session with shared headers pre-applied."""
-    session = requests.Session()
-    session.headers.update(REQUEST_HEADERS)
-    return session
-
-
-def _find_input_name(form, candidates: list) -> str | None:
+def login(
+    session: requests.Session,
+    credentials: tuple[str, str] | None = None,
+) -> bool:
     """
-    Search a BeautifulSoup form for an <input> whose name attribute contains
-    one of the candidate strings (case-insensitive). Returns the first match,
-    or None if no match is found.
-    """
-    for inp in form.find_all("input"):
-        name = inp.get("name", "").lower()
-        if any(candidate in name for candidate in candidates):
-            return inp["name"]
-    return None
+    Authenticate with F4WOnline and mutate *session* in-place.
 
-
-def _prompt_credentials() -> tuple:
-    """Prompt interactively for username/email and password. Password input is hidden."""
-    print("\n--- F4WOnline Login ---")
-    username = input("Username or email: ").strip()
-    password = getpass.getpass("Password: ")
-    return username, password
-
-
-def login(session: requests.Session) -> bool:
-    """
-    Prompt for credentials and POST them to the F4WOnline login endpoint.
-
-    Mutates the session in-place so all subsequent requests carry the
-    authenticated cookies automatically.
+    Pass ``credentials=(username, password)`` for non-interactive use (e.g. a
+    web backend).  Omit it to fall back to the interactive stdin/getpass prompt.
 
     Returns True on success, False on failure.
     """
-    print("Connecting to F4WOnline…")
-    try:
-        resp = session.get(LOGIN_URL, timeout=HTTP_TIMEOUT_PAGE)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"[error] Could not reach the login page: {exc}")
-        return False
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    form = soup.find("form")
-    if not form:
-        print("[error] Could not find a login form on the page. The site may have changed.")
-        return False
-
-    # Use form's action URL if present, otherwise POST back to the same URL.
-    action = form.get("action", "").strip()
-    post_url = action if action.startswith("http") else LOGIN_URL
-
-    # Seed the payload with all hidden fields (CSRF tokens, redirect targets, etc.)
-    payload = {}
-    for inp in form.find_all("input"):
-        if inp.get("type", "").lower() == "hidden":
-            name = inp.get("name", "").strip()
-            if name:
-                payload[name] = inp.get("value", "")
-
-    # Detect field names dynamically to avoid hardcoding names that could change.
-    username_field = _find_input_name(form, ["email", "username", "user", "login"])
-    password_field = _find_input_name(form, ["password", "pass", "pwd"])
-
-    if not username_field or not password_field:
-        print(
-            "[warn] Could not detect form field names automatically. "
-            "Falling back to 'username' and 'password'."
-        )
-        username_field = username_field or "username"
-        password_field = password_field or "password"
-
-    username, password = _prompt_credentials()
-    payload[username_field] = username
-    payload[password_field] = password
-
-    try:
-        login_resp = session.post(
-            post_url,
-            data=payload,
-            headers={**REQUEST_HEADERS, "Referer": LOGIN_URL},
-            allow_redirects=True,
-            timeout=HTTP_TIMEOUT_PAGE,
-        )
-        login_resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"[error] Login request failed: {exc}")
-        return False
-
-    # A successful login redirects away from /login entirely.
-    final_url = login_resp.url
-    still_on_login = "login" in final_url.lower() and "account.f4wonline.com" in final_url
-
-    response_soup = BeautifulSoup(login_resp.text, "html.parser")
-    error_tag = response_soup.find(class_=re.compile(r"error|alert|notice|message", re.I))
-    error_text = error_tag.get_text(strip=True) if error_tag else ""
-    failure_keywords = ("invalid", "incorrect", "wrong password", "failed", "not found")
-    keyword_match = any(kw in login_resp.text.lower() for kw in failure_keywords)
-
-    if still_on_login or (error_text and keyword_match):
-        print("[error] Login failed — please check your username and password.")
-        if error_text:
-            print(f"        Site message: {error_text}")
-        print(f"        Reset your password at: {LOGIN_URL}?sendpass")
-        return False
-
-    f4w_cookies = [c for c in session.cookies if "f4wonline" in c.domain]
-    if not f4w_cookies:
-        print(
-            "[warn] Login appeared to succeed but no session cookie was set.\n"
-            "       Downloads may fail if the site requires authentication."
-        )
-
-    print("[ok]   Logged in successfully.\n")
-    return True
-
-
-# ---------------------------------------------------------------------------
-# HTTP helpers
-# ---------------------------------------------------------------------------
-
-def _fetch_page(url: str, session: requests.Session) -> requests.Response | None:
-    """
-    GET a URL using the authenticated session, retrying up to HTTP_RETRY_COUNT
-    times on failure. Returns the response, or None if all attempts fail.
-    """
-    for attempt in range(HTTP_RETRY_COUNT):
-        try:
-            resp = session.get(url, headers=REQUEST_HEADERS, timeout=HTTP_TIMEOUT_PAGE)
-            resp.raise_for_status()
-            return resp
-        except requests.RequestException as exc:
-            print(f"  [warn] Request failed ({exc}), attempt {attempt + 1}/{HTTP_RETRY_COUNT}")
-            time.sleep(HTTP_RETRY_DELAY * (attempt + 1))
-    return None
+    return _f4w_login(session, login_url=LOGIN_URL, credentials=credentials, prompt_fn=_prompt_credentials)
 
 
 # ---------------------------------------------------------------------------
@@ -273,18 +158,7 @@ def _get_total_pages(slug: str, session: requests.Session) -> int:
     Fetch page 1 of a show's category archive and return the total page count
     by finding the highest page number in the pagination links.
     """
-    url = _category_url(slug, 1)
-    print(f"  [fetch] {url}")
-    resp = _fetch_page(url, session)
-    if resp is None:
-        return 1
-    soup = BeautifulSoup(resp.text, "html.parser")
-    max_page = 1
-    for a in soup.select("a[href*='/page/']"):
-        m = re.search(r"/page/(\d+)/", a["href"])
-        if m:
-            max_page = max(max_page, int(m.group(1)))
-    return max_page
+    return get_total_pages(lambda page: _category_url(slug, page), session, fetch_fn=_fetch_page)
 
 
 def _scrape_category_page(slug: str, page: int, session: requests.Session) -> list:
@@ -319,19 +193,8 @@ def _scrape_category_page(slug: str, page: int, session: requests.Session) -> li
             continue
 
         # Prefer the ISO datetime attribute on a <time> element for accuracy.
-        date_text = ""
         container = heading.find_parent("article") or heading.find_parent("div")
-        if container:
-            time_el = container.find("time")
-            if time_el:
-                dt_attr = time_el.get("datetime", "")
-                m = re.match(r"(\d{4}-\d{2}-\d{2})", dt_attr)
-                if m:
-                    try:
-                        dt = datetime.strptime(m.group(1), DATE_FORMAT_ISO)
-                        date_text = dt.strftime(DATE_FORMAT_IN)
-                    except ValueError:
-                        pass
+        date_text = extract_time_element_date(container, DATE_FORMAT_ISO, DATE_FORMAT_IN)
 
         entries.append({
             "title": title,
@@ -418,11 +281,9 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # MP3 URL — look for an anchor on the media server ending in .mp3
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if href.endswith(".mp3") and "f4wonline.com" in href:
-            result["mp3_url"] = href
-            break
+    mp3_tag = soup.find("a", href=_MP3_LINK_RE)
+    if mp3_tag:
+        result["mp3_url"] = mp3_tag["href"]
     if not result["mp3_url"]:
         m = re.search(
             r"https?://media\d+\.f4wonline\.com/dmdocuments/[^\s\"'<>]+\.mp3",
@@ -440,10 +301,7 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
         result["host"] = author_tag.get_text(strip=True)
 
     # Description — first few substantial paragraphs from the article body
-    content_div = (
-        soup.find("div", class_=re.compile(r"entry.content|post.content|article.content", re.I))
-        or soup.find("article")
-    )
+    content_div = find_content_container(soup)
     if content_div:
         paragraphs = [
             p.get_text(" ", strip=True)
@@ -482,10 +340,7 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
 
 def parse_episode_date(date_str: str) -> datetime | None:
     """Parse a scraped date string like 'March 17, 2026' into a datetime."""
-    try:
-        return datetime.strptime(date_str, DATE_FORMAT_IN)
-    except (ValueError, TypeError):
-        return None
+    return parse_date(date_str, DATE_FORMAT_IN)
 
 
 def enrich_episode(episode: dict) -> dict:
@@ -495,28 +350,12 @@ def enrich_episode(episode: dict) -> dict:
     Adds: year (str), month (str), day (str), datetime (datetime | None)
     Falls back to 'Unknown' / '00' when the date cannot be parsed.
     """
-    dt = parse_episode_date(episode.get("date", ""))
-    if dt:
-        episode["year"] = dt.strftime("%Y")
-        episode["month"] = dt.strftime("%B")
-        episode["day"] = dt.strftime("%d")
-        episode["datetime"] = dt
-    else:
-        episode["year"] = "Unknown"
-        episode["month"] = "Unknown"
-        episode["day"] = "00"
-        episode["datetime"] = None
-    return episode
+    return enrich_with_date(episode, DATE_FORMAT_IN)
 
 
 # ---------------------------------------------------------------------------
 # File system helpers
 # ---------------------------------------------------------------------------
-
-def sanitize_filename(name: str) -> str:
-    """Replace characters that are invalid in file/folder names with underscores."""
-    return re.sub(r'[\\/:*?"<>|]', "_", name).strip()
-
 
 def build_download_path(base_path: Path, episode: dict, yearly: bool, monthly: bool) -> Path:
     """
@@ -525,22 +364,9 @@ def build_download_path(base_path: Path, episode: dict, yearly: bool, monthly: b
     Structure (with both flags enabled):
         base_path / Show Name / Year / Month /
     """
-    path = base_path / sanitize_filename(episode["show"])
-    if yearly and episode.get("year"):
-        path = path / episode["year"]
-    if monthly and episode.get("month"):
-        path = path / episode["month"]
-    return path
-
-
-def generate_download_directories(path: Path) -> bool:
-    """Create the directory tree at path. Returns True on success, False on error."""
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        return True
-    except OSError as exc:
-        print(f"[error] Could not create directory {path}: {exc}")
-        return False
+    return build_hierarchical_path(
+        base_path, episode["show"], episode.get("year"), episode.get("month"), yearly, monthly
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -558,31 +384,10 @@ def download_podcast(
 
     Returns True on success (including skipped files), False on failure.
     """
-    if skip_existing and dest_path.exists():
-        print(f"  [skip] Already exists: {dest_path.name}")
-        return True
-
-    try:
-        resp = session.get(
-            mp3_url,
-            headers=DOWNLOAD_HEADERS,
-            stream=True,
-            timeout=HTTP_TIMEOUT_DOWNLOAD,
-        )
-        resp.raise_for_status()
-
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest_path, "wb") as fh:
-            for chunk in resp.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
-                fh.write(chunk)
-
-        size_mb = dest_path.stat().st_size / (1024 * 1024)
-        print(f"  [ok]   {dest_path.name}  ({size_mb:.1f} MB)")
-        return True
-
-    except requests.RequestException as exc:
-        print(f"  [fail] {mp3_url} — {exc}")
-        return False
+    return stream_download(
+        mp3_url, dest_path, session, headers=DOWNLOAD_HEADERS,
+        timeout=HTTP_TIMEOUT_DOWNLOAD, skip_existing=skip_existing,
+    )
 
 
 # ---------------------------------------------------------------------------

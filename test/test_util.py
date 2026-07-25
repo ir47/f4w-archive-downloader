@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from bs4 import BeautifulSoup
 
-from util import (
+from podcastDownloader.util import (
     CATEGORY_BASE,
     HTTP_RETRY_COUNT,
     SHOW_SLUGS,
@@ -131,27 +131,27 @@ class TestCategoryUrl(TestCase):
 # ---------------------------------------------------------------------------
 
 class TestFetchPage(TestCase):
-    @patch("util.time.sleep")
+    @patch("podcastDownloader.util.time.sleep")
     def test_returns_response_on_success(self, _sleep):
         mock_session = MagicMock()
         mock_resp = MagicMock()
         mock_session.get.return_value = mock_resp
         self.assertIs(mock_resp, _fetch_page("https://example.com", mock_session))
 
-    @patch("util.time.sleep")
+    @patch("podcastDownloader.util.time.sleep")
     def test_returns_none_after_all_retries_fail(self, _sleep):
         mock_session = MagicMock()
         mock_session.get.side_effect = requests.RequestException("timeout")
         self.assertIsNone(_fetch_page("https://example.com", mock_session))
 
-    @patch("util.time.sleep")
+    @patch("podcastDownloader.util.time.sleep")
     def test_retries_then_succeeds(self, _sleep):
         mock_session = MagicMock()
         mock_resp = MagicMock()
         mock_session.get.side_effect = [requests.RequestException("err"), mock_resp]
         self.assertIs(mock_resp, _fetch_page("https://example.com", mock_session))
 
-    @patch("util.time.sleep")
+    @patch("podcastDownloader.util.time.sleep")
     def test_calls_raise_for_status(self, _sleep):
         mock_session = MagicMock()
         mock_resp = MagicMock()
@@ -159,7 +159,7 @@ class TestFetchPage(TestCase):
         _fetch_page("https://example.com", mock_session)
         mock_resp.raise_for_status.assert_called_once()
 
-    @patch("util.time.sleep")
+    @patch("podcastDownloader.util.time.sleep")
     def test_retries_exactly_http_retry_count_times(self, _sleep):
         mock_session = MagicMock()
         mock_session.get.side_effect = requests.RequestException("err")
@@ -179,22 +179,22 @@ class TestGetTotalPages(TestCase):
         )
         return f"<html><body>{links}</body></html>"
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_returns_max_page_from_links(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text=self._pagination_html([2, 3, 5]))
         self.assertEqual(5, _get_total_pages("s", MagicMock()))
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_returns_1_when_no_pagination(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="<html><body>No pages</body></html>")
         self.assertEqual(1, _get_total_pages("s", MagicMock()))
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_returns_1_when_fetch_fails(self, mock_fetch):
         mock_fetch.return_value = None
         self.assertEqual(1, _get_total_pages("s", MagicMock()))
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_returns_single_page_link(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text=self._pagination_html([2]))
         self.assertEqual(2, _get_total_pages("s", MagicMock()))
@@ -205,7 +205,7 @@ class TestGetTotalPages(TestCase):
 # ---------------------------------------------------------------------------
 
 class TestScrapeCategoryPage(TestCase):
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_returns_episode_list(self, mock_fetch):
         mock_fetch.return_value = MagicMock(
             text=_episode_card_html("Episode One", "https://www.f4wonline.com/podcasts/ep-1/")
@@ -214,7 +214,7 @@ class TestScrapeCategoryPage(TestCase):
         self.assertEqual(1, len(results))
         self.assertEqual("Episode One", results[0]["title"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_episode_url(self, mock_fetch):
         mock_fetch.return_value = MagicMock(
             text=_episode_card_html("Ep", "https://www.f4wonline.com/podcasts/ep/")
@@ -222,7 +222,7 @@ class TestScrapeCategoryPage(TestCase):
         results = _scrape_category_page("slug", 1, MagicMock())
         self.assertEqual("https://www.f4wonline.com/podcasts/ep/", results[0]["url"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_date_from_time_element(self, mock_fetch):
         mock_fetch.return_value = MagicMock(
             text=_episode_card_html("Ep", "https://www.f4wonline.com/podcasts/ep/", "2026-01-15")
@@ -231,7 +231,7 @@ class TestScrapeCategoryPage(TestCase):
         self.assertIn("January", results[0]["date"])
         self.assertIn("2026", results[0]["date"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_sets_known_show_name(self, mock_fetch):
         mock_fetch.return_value = MagicMock(
             text=_episode_card_html("Ep", "https://www.f4wonline.com/podcasts/wor/")
@@ -239,30 +239,30 @@ class TestScrapeCategoryPage(TestCase):
         results = _scrape_category_page("wrestling-observer-radio", 1, MagicMock())
         self.assertEqual("Wrestling Observer Radio", results[0]["show"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_skips_category_links(self, mock_fetch):
         html = '<article><h3><a href="https://www.f4wonline.com/category/podcasts/show/">Cat</a></h3></article>'
         mock_fetch.return_value = MagicMock(text=html)
         self.assertEqual([], _scrape_category_page("slug", 1, MagicMock()))
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_skips_how_to_listen_links(self, mock_fetch):
         html = '<article><h3><a href="https://www.f4wonline.com/podcasts/how-to-listen/">Info</a></h3></article>'
         mock_fetch.return_value = MagicMock(text=html)
         self.assertEqual([], _scrape_category_page("slug", 1, MagicMock()))
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_skips_non_podcast_urls(self, mock_fetch):
         html = '<article><h3><a href="https://www.f4wonline.com/news/story/">News</a></h3></article>'
         mock_fetch.return_value = MagicMock(text=html)
         self.assertEqual([], _scrape_category_page("slug", 1, MagicMock()))
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_returns_empty_on_fetch_failure(self, mock_fetch):
         mock_fetch.return_value = None
         self.assertEqual([], _scrape_category_page("slug", 1, MagicMock()))
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_show_slug_recorded_on_episode(self, mock_fetch):
         mock_fetch.return_value = MagicMock(
             text=_episode_card_html("Ep", "https://www.f4wonline.com/podcasts/ep/")
@@ -279,9 +279,9 @@ class TestScrapeAllEpisodes(TestCase):
     def _ep(self, title="Ep"):
         return {"title": title, "url": "https://x.com/", "date": "", "show": "Show", "show_slug": "s"}
 
-    @patch("util.time.sleep")
-    @patch("util._scrape_category_page")
-    @patch("util._get_total_pages")
+    @patch("podcastDownloader.util.time.sleep")
+    @patch("podcastDownloader.util._scrape_category_page")
+    @patch("podcastDownloader.util._get_total_pages")
     def test_scrapes_single_show(self, mock_pages, mock_scrape, _sleep):
         mock_pages.return_value = 1
         mock_scrape.return_value = [self._ep("Ep1")]
@@ -289,37 +289,37 @@ class TestScrapeAllEpisodes(TestCase):
         self.assertEqual(1, len(results))
         self.assertEqual("Ep1", results[0]["title"])
 
-    @patch("util.time.sleep")
-    @patch("util._scrape_category_page")
-    @patch("util._get_total_pages")
+    @patch("podcastDownloader.util.time.sleep")
+    @patch("podcastDownloader.util._scrape_category_page")
+    @patch("podcastDownloader.util._get_total_pages")
     def test_respects_max_pages(self, mock_pages, mock_scrape, _sleep):
         mock_pages.return_value = 10
         mock_scrape.return_value = [self._ep()]
         scrape_all_episodes(MagicMock(), show_filter="wrestling-observer-radio", max_pages=2)
         self.assertEqual(2, mock_scrape.call_count)
 
-    @patch("util.time.sleep")
-    @patch("util._scrape_category_page")
-    @patch("util._get_total_pages")
+    @patch("podcastDownloader.util.time.sleep")
+    @patch("podcastDownloader.util._scrape_category_page")
+    @patch("podcastDownloader.util._get_total_pages")
     def test_combines_episodes_across_pages(self, mock_pages, mock_scrape, _sleep):
         mock_pages.return_value = 2
         mock_scrape.side_effect = [[self._ep("A")], [self._ep("B")]]
         results = scrape_all_episodes(MagicMock(), show_filter="wrestling-observer-radio")
         self.assertEqual(2, len(results))
 
-    @patch("util.time.sleep")
-    @patch("util._scrape_category_page")
-    @patch("util._get_total_pages")
-    @patch("util.SHOW_SLUGS", {"show-a": "Show A", "show-b": "Show B"})
+    @patch("podcastDownloader.util.time.sleep")
+    @patch("podcastDownloader.util._scrape_category_page")
+    @patch("podcastDownloader.util._get_total_pages")
+    @patch("podcastDownloader.util.SHOW_SLUGS", {"show-a": "Show A", "show-b": "Show B"})
     def test_scrapes_all_shows_when_no_filter(self, mock_pages, mock_scrape, _sleep):
         mock_pages.return_value = 1
         mock_scrape.return_value = [self._ep()]
         scrape_all_episodes(MagicMock(), show_filter=None, max_pages=1)
         self.assertEqual(2, mock_pages.call_count)
 
-    @patch("util.time.sleep")
-    @patch("util._scrape_category_page")
-    @patch("util._get_total_pages")
+    @patch("podcastDownloader.util.time.sleep")
+    @patch("podcastDownloader.util._scrape_category_page")
+    @patch("podcastDownloader.util._get_total_pages")
     def test_sleeps_between_pages(self, mock_pages, mock_scrape, mock_sleep):
         mock_pages.return_value = 2
         mock_scrape.return_value = []
@@ -332,7 +332,7 @@ class TestScrapeAllEpisodes(TestCase):
 # ---------------------------------------------------------------------------
 
 class TestScrapeEpisodeDetails(TestCase):
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_mp3_url_from_anchor(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="""
         <html><body>
@@ -344,7 +344,7 @@ class TestScrapeEpisodeDetails(TestCase):
             "https://media001.f4wonline.com/dmdocuments/episode.mp3", result["mp3_url"]
         )
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_mp3_url_from_page_text(self, mock_fetch):
         mock_fetch.return_value = MagicMock(
             text="audio = 'https://media001.f4wonline.com/dmdocuments/audio.mp3';"
@@ -354,7 +354,7 @@ class TestScrapeEpisodeDetails(TestCase):
             "https://media001.f4wonline.com/dmdocuments/audio.mp3", result["mp3_url"]
         )
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_host_from_author_link(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="""
         <html><body><a rel="author">Dave Meltzer</a></body></html>
@@ -362,7 +362,7 @@ class TestScrapeEpisodeDetails(TestCase):
         result = scrape_episode_details("https://example.com/ep/", MagicMock())
         self.assertEqual("Dave Meltzer", result["host"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_categories(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="""
         <html><body>
@@ -374,7 +374,7 @@ class TestScrapeEpisodeDetails(TestCase):
         self.assertIn("Wrestling Observer Radio", result["categories"])
         self.assertIn("Podcasts", result["categories"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_thumbnail_from_og_image(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="""
         <html><head>
@@ -384,7 +384,7 @@ class TestScrapeEpisodeDetails(TestCase):
         result = scrape_episode_details("https://example.com/ep/", MagicMock())
         self.assertEqual("https://example.com/thumb.jpg", result["thumbnail_url"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_description_from_article(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="""
         <html><body>
@@ -397,7 +397,7 @@ class TestScrapeEpisodeDetails(TestCase):
         result = scrape_episode_details("https://example.com/ep/", MagicMock())
         self.assertIn("first paragraph", result["description"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_returns_empty_defaults_on_fetch_failure(self, mock_fetch):
         mock_fetch.return_value = None
         result = scrape_episode_details("https://example.com/ep/", MagicMock())
@@ -407,7 +407,7 @@ class TestScrapeEpisodeDetails(TestCase):
         self.assertEqual([], result["categories"])
         self.assertIsNone(result["thumbnail_url"])
 
-    @patch("util._fetch_page")
+    @patch("podcastDownloader.util._fetch_page")
     def test_mp3_url_none_when_not_found(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="<html><body>No mp3 here</body></html>")
         result = scrape_episode_details("https://example.com/ep/", MagicMock())
@@ -642,17 +642,17 @@ class TestDownloadPodcast(TestCase):
 # ---------------------------------------------------------------------------
 
 class TestFetchThumbnail(TestCase):
-    @patch("util.requests.get")
+    @patch("podcastDownloader.util.requests.get")
     def test_returns_bytes_on_success(self, mock_get):
         mock_get.return_value = MagicMock(content=b"\xff\xd8\xff")
         self.assertEqual(b"\xff\xd8\xff", _fetch_thumbnail("https://example.com/thumb.jpg"))
 
-    @patch("util.requests.get")
+    @patch("podcastDownloader.util.requests.get")
     def test_returns_none_on_request_exception(self, mock_get):
         mock_get.side_effect = requests.RequestException("timeout")
         self.assertIsNone(_fetch_thumbnail("https://example.com/thumb.jpg"))
 
-    @patch("util.requests.get")
+    @patch("podcastDownloader.util.requests.get")
     def test_calls_raise_for_status(self, mock_get):
         mock_resp = MagicMock(content=b"data")
         mock_get.return_value = mock_resp
@@ -761,7 +761,7 @@ class TestWriteId3Tags(TestCase):
         finally:
             dest.unlink(missing_ok=True)
 
-    @patch("util._fetch_thumbnail")
+    @patch("podcastDownloader.util._fetch_thumbnail")
     def test_fetches_thumbnail_when_url_provided(self, mock_fetch):
         mock_fetch.return_value = b"\xff\xd8\xff"
         dest = self._temp_mp3()
@@ -797,19 +797,19 @@ class TestLogin(TestCase):
         session.cookies = cookies or []
         return session
 
-    @patch("util._prompt_credentials", return_value=("user@example.com", "pass"))
+    @patch("podcastDownloader.util._prompt_credentials", return_value=("user@example.com", "pass"))
     def test_returns_false_when_login_page_unreachable(self, _creds):
         session = MagicMock()
         session.get.side_effect = requests.RequestException("refused")
         self.assertFalse(login(session))
 
-    @patch("util._prompt_credentials", return_value=("user@example.com", "pass"))
+    @patch("podcastDownloader.util._prompt_credentials", return_value=("user@example.com", "pass"))
     def test_returns_false_when_no_form_on_page(self, _creds):
         session = MagicMock()
         session.get.return_value = MagicMock(text="<html><body><p>No form</p></body></html>")
         self.assertFalse(login(session))
 
-    @patch("util._prompt_credentials", return_value=("user@example.com", "pass"))
+    @patch("podcastDownloader.util._prompt_credentials", return_value=("user@example.com", "pass"))
     def test_returns_false_when_still_on_login_page_after_post(self, _creds):
         session = self._mock_session(
             get_html=self._LOGIN_FORM_HTML,
@@ -818,7 +818,7 @@ class TestLogin(TestCase):
         )
         self.assertFalse(login(session))
 
-    @patch("util._prompt_credentials", return_value=("user@example.com", "pass"))
+    @patch("podcastDownloader.util._prompt_credentials", return_value=("user@example.com", "pass"))
     def test_returns_true_on_successful_redirect(self, _creds):
         session = self._mock_session(
             get_html=self._LOGIN_FORM_HTML,
@@ -827,7 +827,7 @@ class TestLogin(TestCase):
         )
         self.assertTrue(login(session))
 
-    @patch("util._prompt_credentials", return_value=("user@example.com", "wrong"))
+    @patch("podcastDownloader.util._prompt_credentials", return_value=("user@example.com", "wrong"))
     def test_returns_false_when_error_keyword_in_response(self, _creds):
         session = self._mock_session(
             get_html=self._LOGIN_FORM_HTML,
@@ -836,7 +836,7 @@ class TestLogin(TestCase):
         )
         self.assertFalse(login(session))
 
-    @patch("util._prompt_credentials", return_value=("user@example.com", "pass"))
+    @patch("podcastDownloader.util._prompt_credentials", return_value=("user@example.com", "pass"))
     def test_posts_hidden_fields_as_payload(self, _creds):
         session = self._mock_session(
             get_html=self._LOGIN_FORM_HTML,
