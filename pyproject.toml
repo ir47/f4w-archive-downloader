@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "f4w-podcast-downloader"
-version = "0.2.0"
-description = "Download and organise podcasts from the F4W Online archive"
+name = "f4w-archive-downloader"
+version = "0.3.0"
+description = "Download and organise podcasts and newsletters from the F4W Online archive"
 requires-python = ">=3.9"
 dependencies = [
     "beautifulsoup4>=4.12.3",

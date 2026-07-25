@@ -1,4 +1,4 @@
-# F4W Podcast Mass Downloader
+# F4W Archive Downloader
 
 Bulk-download podcasts and Wrestling Observer Newsletter issues from [F4W Online](https://www.f4wonline.com), organise them into a folder hierarchy by show/year/month, and (for podcasts) embed ID3 metadata tags automatically.
 
@@ -9,8 +9,8 @@ Bulk-download podcasts and Wrestling Observer Newsletter issues from [F4W Online
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/F4WPodcastMassDownloader.git
-cd F4WPodcastMassDownloader
+git clone https://github.com/ir47/f4w-archive-downloader.git
+cd f4w-archive-downloader
 pip install -e .
 ```
 
@@ -143,4 +143,3 @@ pytest
 - Interactive episode picker within a date range
 - GUI / web front end
 - `.mobi` output for the newsletter downloader (currently `.epub` only)
-- Rename the distribution to something like `f4w-mass-downloader` now that it covers more than podcasts
