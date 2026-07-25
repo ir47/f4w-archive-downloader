@@ -20,7 +20,7 @@ dev = ["pytest>=7.0"]
 f4w-download = "podcastDownloader.runner:main"
 
 [tool.setuptools.packages.find]
-include = ["podcastDownloader*"]
+include = ["podcastDownloader*", "f4wCommon*"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
