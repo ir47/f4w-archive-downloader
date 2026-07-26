@@ -2,8 +2,8 @@
 util.py — F4WOnline Podcast Downloader
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Podcast-specific scraping and ID3 tagging. Site-agnostic auth/HTTP/date/
-filesystem helpers live in the shared f4wCommon package and are re-exported
-here for backwards compatibility.
+filesystem helpers live in the shared f4wCommon package — import them from
+there directly rather than through this module.
 """
 
 from __future__ import annotations
@@ -29,24 +29,12 @@ from mutagen.id3 import (
     WOAS,   # Official audio source URL (episode page URL)
 )
 
-from f4wCommon.auth import (
-    DEFAULT_LOGIN_URL as LOGIN_URL,
-    find_input_name as _find_input_name,
-    login as _f4w_login,
-    prompt_credentials as _prompt_credentials,
-)
 from f4wCommon.dates import enrich_with_date, parse_date
-from f4wCommon.fsutil import (
-    build_hierarchical_path,
-    generate_download_directories,
-    sanitize_filename,
-)
+from f4wCommon.fsutil import build_hierarchical_path
 from f4wCommon.http import (
-    HTTP_RETRY_COUNT,
     HTTP_TIMEOUT_DOWNLOAD,
     REQUEST_HEADERS,
-    create_session,
-    fetch_page as _fetch_page,
+    fetch_page,
     stream_download,
 )
 from f4wCommon.scrape import (
@@ -124,25 +112,6 @@ _MP3_LINK_RE = re.compile(r"f4wonline\.com.*\.mp3(?:\?.*)?$", re.I)
 
 
 # ---------------------------------------------------------------------------
-# Authentication
-# ---------------------------------------------------------------------------
-
-def login(
-    session: requests.Session,
-    credentials: tuple[str, str] | None = None,
-) -> bool:
-    """
-    Authenticate with F4WOnline and mutate *session* in-place.
-
-    Pass ``credentials=(username, password)`` for non-interactive use (e.g. a
-    web backend).  Omit it to fall back to the interactive stdin/getpass prompt.
-
-    Returns True on success, False on failure.
-    """
-    return _f4w_login(session, login_url=LOGIN_URL, credentials=credentials, prompt_fn=_prompt_credentials)
-
-
-# ---------------------------------------------------------------------------
 # Category scraping
 # ---------------------------------------------------------------------------
 
@@ -158,7 +127,7 @@ def _get_total_pages(slug: str, session: requests.Session) -> int:
     Fetch page 1 of a show's category archive and return the total page count
     by finding the highest page number in the pagination links.
     """
-    return get_total_pages(lambda page: _category_url(slug, page), session, fetch_fn=_fetch_page)
+    return get_total_pages(lambda page: _category_url(slug, page), session, fetch_fn=fetch_page)
 
 
 def _scrape_category_page(slug: str, page: int, session: requests.Session) -> list:
@@ -169,7 +138,7 @@ def _scrape_category_page(slug: str, page: int, session: requests.Session) -> li
     """
     url = _category_url(slug, page)
     print(f"  [fetch] {url}")
-    resp = _fetch_page(url, session)
+    resp = fetch_page(url, session)
     if resp is None:
         return []
 
@@ -274,7 +243,7 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
         "thumbnail_url": None,
     }
 
-    resp = _fetch_page(episode_url, session)
+    resp = fetch_page(episode_url, session)
     if resp is None:
         return result
 
