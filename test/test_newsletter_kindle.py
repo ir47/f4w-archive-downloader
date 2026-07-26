@@ -1,5 +1,6 @@
 """Unit tests for newsletterDownloader/kindle.py"""
 import subprocess
+
 from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch

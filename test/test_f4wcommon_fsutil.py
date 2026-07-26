@@ -1,8 +1,9 @@
 """Unit tests for f4wCommon/fsutil.py"""
 import tempfile
+
 from pathlib import Path
-from unittest import TestCase, main
 from unittest.mock import patch
+from unittest import TestCase, main
 
 from f4wCommon.fsutil import (
     build_hierarchical_path,

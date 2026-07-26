@@ -1,6 +1,7 @@
 """Unit tests for f4wCommon/pipeline.py"""
 import io
 import tempfile
+
 from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch

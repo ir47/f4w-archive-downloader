@@ -13,9 +13,9 @@ converting to an ebook). Returning False marks the item failed.
 from __future__ import annotations
 
 import time
-from pathlib import Path
-
 import requests
+
+from pathlib import Path
 
 from f4wCommon.fsutil import (
     build_item_path,

@@ -27,14 +27,10 @@ python runner.py --show after-dark --overwrite
 
 from __future__ import annotations
 
-import argparse
 import sys
-from pathlib import Path
+import argparse
 
-from f4wCommon.cli import add_common_arguments, login_or_exit, parse_cli_date
-from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range
-from f4wCommon.http import create_session
-from f4wCommon.pipeline import print_dry_run, print_summary, run_download_loop
+from pathlib import Path
 
 from podcastDownloader.util import (
     DEFAULT_DOWNLOAD_PATH,
@@ -44,6 +40,10 @@ from podcastDownloader.util import (
     scrape_episode_details,
     write_id3_tags,
 )
+from f4wCommon.http import create_session
+from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range
+from f4wCommon.cli import add_common_arguments, login_or_exit, parse_cli_date
+from f4wCommon.pipeline import print_dry_run, print_summary, run_download_loop
 
 
 # ---------------------------------------------------------------------------

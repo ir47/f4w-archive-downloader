@@ -8,9 +8,9 @@ shared by every F4WOnline downloader (podcasts, newsletters, ...).
 from __future__ import annotations
 
 import time
-from pathlib import Path
-
 import requests
+
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------

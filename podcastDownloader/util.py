@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import re
 import time
-from pathlib import Path
-from urllib.parse import urlsplit
-
 import requests
+
+from pathlib import Path
 from bs4 import BeautifulSoup
+from urllib.parse import urlsplit
 from mutagen.id3 import Frames, ID3
 
-from f4wCommon.dates import DATE_FORMAT_ISO
 from f4wCommon.http import (
     HTTP_TIMEOUT_DOWNLOAD,
     REQUEST_HEADERS,
@@ -29,6 +28,7 @@ from f4wCommon.scrape import (
     get_total_pages,
     scrape_listing_page,
 )
+from f4wCommon.dates import DATE_FORMAT_ISO
 
 
 # ---------------------------------------------------------------------------

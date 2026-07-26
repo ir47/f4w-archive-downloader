@@ -1,5 +1,6 @@
 """Unit tests for newsletterDownloader/util.py"""
 import tempfile
+
 from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch

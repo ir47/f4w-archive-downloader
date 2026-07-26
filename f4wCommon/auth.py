@@ -6,13 +6,13 @@ Site-agnostic login/authentication flow shared by every F4WOnline downloader.
 
 from __future__ import annotations
 
-import getpass
 import os
 import re
-from urllib.parse import urljoin
-
+import getpass
 import requests
+
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 from f4wCommon.http import REQUEST_HEADERS, HTTP_TIMEOUT_PAGE
 

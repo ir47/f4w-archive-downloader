@@ -1,7 +1,8 @@
 """Unit tests for f4wCommon/cli.py"""
 import argparse
-from datetime import datetime
+
 from pathlib import Path
+from datetime import datetime
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
 

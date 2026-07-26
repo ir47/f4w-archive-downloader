@@ -1,8 +1,7 @@
 """Unit tests for f4wCommon/scrape.py"""
+from bs4 import BeautifulSoup
 from unittest import TestCase, main
 from unittest.mock import MagicMock
-
-from bs4 import BeautifulSoup
 
 from f4wCommon.scrape import (
     extract_time_element_date,

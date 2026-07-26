@@ -8,10 +8,10 @@ shared by every F4WOnline downloader (podcasts, newsletters, ...).
 from __future__ import annotations
 
 import re
-from datetime import datetime
-
 import requests
+
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 from f4wCommon.dates import DATE_FORMAT_IN, DATE_FORMAT_ISO
 from f4wCommon.http import fetch_page as _default_fetch_page

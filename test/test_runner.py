@@ -1,10 +1,11 @@
 """Unit tests for runner.py"""
 import io
-from unittest import TestCase, main
-from unittest.mock import patch
 
-from podcastDownloader.runner import _build_parser, _print_show_list
+from unittest.mock import patch
+from unittest import TestCase, main
+
 from podcastDownloader.util import SHOW_SLUGS
+from podcastDownloader.runner import _build_parser, _print_show_list
 
 
 # ---------------------------------------------------------------------------

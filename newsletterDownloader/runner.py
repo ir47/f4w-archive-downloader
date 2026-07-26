@@ -26,17 +26,12 @@ python -m newsletterDownloader.runner --format kindle --output ~/Newsletters
 
 from __future__ import annotations
 
-import argparse
 import sys
+import argparse
 import tempfile
+
 from pathlib import Path
 
-from f4wCommon.cli import add_common_arguments, login_or_exit, parse_cli_date
-from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range
-from f4wCommon.http import create_session
-from f4wCommon.pipeline import print_dry_run, print_summary, run_download_loop
-
-from newsletterDownloader.kindle import calibre_available, convert_to_ebook
 from newsletterDownloader.util import (
     DEFAULT_NEWSLETTER_DOWNLOAD_PATH,
     clean_html_for_ebook,
@@ -45,6 +40,11 @@ from newsletterDownloader.util import (
     scrape_all_issues,
     scrape_issue_details,
 )
+from f4wCommon.http import create_session
+from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range
+from newsletterDownloader.kindle import calibre_available, convert_to_ebook
+from f4wCommon.cli import add_common_arguments, login_or_exit, parse_cli_date
+from f4wCommon.pipeline import print_dry_run, print_summary, run_download_loop
 
 
 # ---------------------------------------------------------------------------

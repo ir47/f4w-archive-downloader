@@ -1,11 +1,11 @@
 """Unit tests for podcastDownloader/util.py"""
+import requests
 import tempfile
-from datetime import datetime
+
 from pathlib import Path
+from datetime import datetime
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
-
-import requests
 
 from podcastDownloader.util import (
     CATEGORY_BASE,

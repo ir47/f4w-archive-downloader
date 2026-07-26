@@ -9,14 +9,14 @@ archive pagination, PDF/article-content selectors).
 
 from __future__ import annotations
 
-import html
 import re
+import html
 import time
-from datetime import datetime
-from pathlib import Path
-
 import requests
+
+from pathlib import Path
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 from f4wCommon.dates import DATE_FORMAT_IN
 from f4wCommon.http import fetch_page, stream_download

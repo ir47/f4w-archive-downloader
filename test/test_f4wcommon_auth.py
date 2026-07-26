@@ -1,9 +1,9 @@
 """Unit tests for f4wCommon/auth.py"""
+import requests
+
+from bs4 import BeautifulSoup
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
-
-import requests
-from bs4 import BeautifulSoup
 
 from f4wCommon.auth import find_input_name, login
 

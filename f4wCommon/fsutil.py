@@ -7,6 +7,7 @@ Site-agnostic filename/directory helpers shared by every F4WOnline downloader.
 from __future__ import annotations
 
 import re
+
 from pathlib import Path
 
 

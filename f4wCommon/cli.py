@@ -7,12 +7,12 @@ downloader entry point.
 
 from __future__ import annotations
 
-import argparse
 import sys
-from datetime import datetime
-from pathlib import Path
-
+import argparse
 import requests
+
+from pathlib import Path
+from datetime import datetime
 
 from f4wCommon.auth import login
 from f4wCommon.dates import DATE_FORMAT_IN, parse_date_arg
