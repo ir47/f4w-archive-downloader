@@ -9,6 +9,7 @@ from __future__ import annotations
 import getpass
 import os
 import re
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -19,13 +20,24 @@ from f4wCommon.http import REQUEST_HEADERS, HTTP_TIMEOUT_PAGE
 DEFAULT_LOGIN_URL = "https://account.f4wonline.com/login"
 
 
-def find_input_name(form, candidates: list) -> str | None:
+def find_input_name(form, candidates: list, input_types: list | None = None) -> str | None:
     """
     Search a BeautifulSoup form for an <input> whose name attribute contains
     one of the candidate strings (case-insensitive). Returns the first match,
     or None if no match is found.
+
+    Pass *input_types* (e.g. ["text", "email"]) to only consider inputs of
+    those types — otherwise a hidden field whose name happens to match a
+    candidate (e.g. a "login_token" CSRF field matching the "login"
+    candidate) could be mistaken for the real username/password input. An
+    input with no explicit type= attribute is treated as "text" per the
+    HTML spec.
     """
     for inp in form.find_all("input"):
+        if input_types is not None:
+            inp_type = inp.get("type", "text").lower()
+            if inp_type not in input_types:
+                continue
         name = inp.get("name", "").lower()
         if any(candidate in name for candidate in candidates):
             return inp["name"]
@@ -72,9 +84,11 @@ def login(
         print("[error] Could not find a login form on the page. The site may have changed.")
         return False
 
-    # Use form's action URL if present, otherwise POST back to the same URL.
+    # Use form's action URL if present (resolved against login_url, so a
+    # relative action like "/login/check" works, not just absolute ones),
+    # otherwise POST back to the same URL.
     action = form.get("action", "").strip()
-    post_url = action if action.startswith("http") else login_url
+    post_url = urljoin(login_url, action) if action else login_url
 
     # Seed the payload with all hidden fields (CSRF tokens, redirect targets, etc.)
     payload = {}
@@ -84,9 +98,11 @@ def login(
             if name:
                 payload[name] = inp.get("value", "")
 
-    # Detect field names dynamically to avoid hardcoding names that could change.
-    username_field = find_input_name(form, ["email", "username", "user", "login"])
-    password_field = find_input_name(form, ["password", "pass", "pwd"])
+    # Detect field names dynamically to avoid hardcoding names that could
+    # change. Restrict to visible text/email/password inputs so a hidden
+    # CSRF field (e.g. "login_token") can't be mistaken for the real one.
+    username_field = find_input_name(form, ["email", "username", "user", "login"], input_types=["text", "email"])
+    password_field = find_input_name(form, ["password", "pass", "pwd"], input_types=["password"])
 
     if not username_field or not password_field:
         print(
