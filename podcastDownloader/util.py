@@ -15,26 +15,7 @@ from urllib.parse import urlsplit
 
 import requests
 from bs4 import BeautifulSoup
-# mutagen.id3.__all__ lists only ID3, ID3FileType, Frames, Open and delete, so
-# type checkers flag every frame class below as a private import even though
-# they resolve at runtime and are mutagen's documented public API. Importing
-# from mutagen.id3._frames as the checker suggests would be worse: it is a
-# private module, and ID3NoHeaderError isn't even in it (it lives in
-# mutagen.id3._util). Suppress the rule here rather than depend on internals.
-# pyright: reportPrivateImportUsage=false
-from mutagen.id3 import (
-    APIC,   # Attached picture (thumbnail artwork)
-    COMM,   # Comment (episode description)
-    ID3,
-    ID3NoHeaderError,
-    TALB,   # Album (show name)
-    TCON,   # Genre / category
-    TDRC,   # Recording date
-    TIT2,   # Title
-    TPE1,   # Artist (host)
-    TRCK,   # Track number (day-of-month for in-month ordering)
-    WOAS,   # Official audio source URL (episode page URL)
-)
+from mutagen.id3 import Frames, ID3
 
 from f4wCommon.dates import DATE_FORMAT_ISO
 from f4wCommon.http import (
@@ -48,6 +29,26 @@ from f4wCommon.scrape import (
     get_total_pages,
     scrape_listing_page,
 )
+
+
+# ---------------------------------------------------------------------------
+# ID3 frame classes
+# ---------------------------------------------------------------------------
+
+# mutagen's __all__ exports only ID3, ID3FileType, Frames, Open and delete, so
+# importing the frame classes by name reads as reaching into a private API even
+# though they resolve fine. Go through the public Frames registry instead.
+# Resolved at import time, so a mistyped frame name still fails immediately
+# rather than part-way through a download run.
+APIC = Frames["APIC"]   # Attached picture (thumbnail artwork)
+COMM = Frames["COMM"]   # Comment (episode description)
+TALB = Frames["TALB"]   # Album (show name)
+TCON = Frames["TCON"]   # Genre / category
+TDRC = Frames["TDRC"]   # Recording date
+TIT2 = Frames["TIT2"]   # Title
+TPE1 = Frames["TPE1"]   # Artist (host)
+TRCK = Frames["TRCK"]   # Track number (day-of-month for in-month ordering)
+WOAS = Frames["WOAS"]   # Official audio source URL (episode page URL)
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +363,13 @@ def write_id3_tags(
     try:
         try:
             tags = ID3(mp3_path)
-        except ID3NoHeaderError:
+        except ValueError:
+            # ID3NoHeaderError is also outside mutagen's __all__, and every
+            # mutagen error subclasses ValueError. Catching ValueError is
+            # slightly wider than the old ID3NoHeaderError: any unreadable
+            # existing tag block, not just a missing one, now starts a fresh
+            # tag set. That is the same outcome we want either way — the file
+            # was just downloaded and every tag below is about to be written.
             tags = ID3()
 
         tags.add(TIT2(encoding=3, text=episode.get("title", "")))
