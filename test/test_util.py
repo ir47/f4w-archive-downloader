@@ -424,6 +424,18 @@ class TestThumbnailMimeType(TestCase):
     def test_uppercase_webp(self):
         self.assertEqual("image/webp", _thumbnail_mime_type("https://example.com/img.WEBP"))
 
+    def test_png_with_query_string(self):
+        self.assertEqual("image/png", _thumbnail_mime_type("https://example.com/img.png?w=800"))
+
+    def test_webp_with_query_string(self):
+        self.assertEqual("image/webp", _thumbnail_mime_type("https://example.com/img.webp?v=2&x=1"))
+
+    def test_png_with_fragment(self):
+        self.assertEqual("image/png", _thumbnail_mime_type("https://example.com/img.png#top"))
+
+    def test_unknown_extension_with_query_still_defaults(self):
+        self.assertEqual("image/jpeg", _thumbnail_mime_type("https://example.com/img.gif?v=1"))
+
 
 # ---------------------------------------------------------------------------
 # write_id3_tags

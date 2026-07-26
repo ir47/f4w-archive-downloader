@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -312,11 +313,21 @@ def _fetch_thumbnail(url: str) -> bytes | None:
 
 
 def _thumbnail_mime_type(url: str) -> str:
-    """Infer the MIME type of a thumbnail image from its file extension."""
-    url_lower = url.lower()
-    if url_lower.endswith(".png"):
+    """
+    Infer the MIME type of a thumbnail image from its file extension.
+
+    Query strings and fragments are stripped first — og:image URLs routinely
+    carry CDN cache-busting parameters (…/cover.png?w=800), which would
+    otherwise defeat the extension match and mislabel the cover art.
+
+    Deliberately an explicit map rather than mimetypes.guess_type: that reads
+    the system mime.types database, so it can resolve differently on macOS and
+    on the Linux CI runners.
+    """
+    path = urlsplit(url).path.lower()
+    if path.endswith(".png"):
         return "image/png"
-    if url_lower.endswith(".webp"):
+    if path.endswith(".webp"):
         return "image/webp"
     return "image/jpeg"
 
