@@ -28,6 +28,31 @@ Then run via `python -m podcastDownloader.runner` or `python -m newsletterDownlo
 
 ---
 
+## Credentials
+
+Both commands share one F4W Online login. Credentials are resolved in this order:
+
+1. The `F4W_USERNAME` and `F4W_PASSWORD` environment variables — both must be set, or the pair is ignored.
+2. An interactive prompt (the password is hidden).
+
+Setting the environment variables is useful for unattended runs:
+
+```bash
+export F4W_USERNAME="you@example.com"
+export F4W_PASSWORD="your-password"
+f4w-download --all
+```
+
+Nothing auto-loads a `.env` file — there is no `python-dotenv` dependency — so if you keep credentials in one, source it yourself first:
+
+```bash
+set -a; . ./.env; set +a
+```
+
+`.env` is gitignored. Never commit real credentials.
+
+---
+
 ## Usage
 
 ```bash
@@ -60,13 +85,15 @@ f4w-download --show after-dark --overwrite
 | `--output PATH` | `~/Downloads/F4WPodcasts` | Root download directory |
 | `--start DATE` | — | Only episodes on or after this date (`January 1, 2025`) |
 | `--end DATE` | — | Only episodes on or before this date |
-| `--max-pages N` | — | Limit pages scraped per show (useful for testing) |
+| `--max-pages N` | — | Limit archive index pages scraped (useful for testing) |
 | `--no-yearly` | — | Don't create per-year sub-folders |
 | `--no-monthly` | — | Don't create per-month sub-folders |
-| `--page-delay SECS` | `1.0` | Sleep between index page requests |
-| `--episode-delay SECS` | `0.5` | Sleep between episode page requests |
+| `--page-delay SECS` | `1.0` | Sleep between archive index page requests |
+| `--item-delay SECS` | `0.5` | Sleep between episode page requests |
 | `--overwrite` | — | Re-download files that already exist |
 | `--dry-run` | — | Print what would be downloaded without downloading |
+
+> `--episode-delay` is still accepted as an alias for `--item-delay`, which replaced it when the two downloaders were unified onto one CLI.
 
 ---
 
@@ -108,13 +135,15 @@ f4w-newsletters --format kindle --output ~/Newsletters
 | `--output PATH` | `~/Downloads/F4WNewsletters` | Root download directory |
 | `--start DATE` | — | Only issues on or after this date (`January 1, 2025`) |
 | `--end DATE` | — | Only issues on or before this date |
-| `--max-pages N` | — | Limit archive pages scraped (useful for testing) |
+| `--max-pages N` | — | Limit archive index pages scraped (useful for testing) |
 | `--no-yearly` | — | Don't create per-year sub-folders |
 | `--no-monthly` | — | Don't create per-month sub-folders |
-| `--page-delay SECS` | `1.0` | Sleep between archive page requests |
-| `--issue-delay SECS` | `0.5` | Sleep between individual issue requests |
+| `--page-delay SECS` | `1.0` | Sleep between archive index page requests |
+| `--item-delay SECS` | `0.5` | Sleep between individual issue requests |
 | `--overwrite` | — | Re-download issues that already exist |
 | `--dry-run` | — | Print what would be downloaded without downloading |
+
+> `--issue-delay` is still accepted as an alias for `--item-delay`, which replaced it when the two downloaders were unified onto one CLI.
 
 ### Output structure
 
@@ -134,6 +163,33 @@ f4w-newsletters --format kindle --output ~/Newsletters
 pip install -r requirements-dev.txt
 pytest
 ```
+
+325 tests, no network access required — every HTTP call is mocked.
+
+### Project structure
+
+Both downloaders are thin site-specific shells over a shared core. Anything not
+specific to podcasts or newsletters lives in `f4wCommon`:
+
+```
+f4wCommon/            shared core — site-agnostic
+├── auth.py           login flow, form-field detection, credential resolution
+├── cli.py            the argument set both CLIs share, plus login_or_exit()
+├── dates.py          date formats, parsing, enrichment, range filtering
+├── fsutil.py         filename sanitising, output path/filename building
+├── http.py           session, retrying fetch, resumable streaming download
+├── pipeline.py       the download workflow: dry-run, loop, summary
+└── scrape.py         WordPress archive helpers: listing pages, pagination
+
+podcastDownloader/    episode scraping, MP3 download, ID3 tagging
+newsletterDownloader/ issue scraping, PDF/HTML saving, Calibre conversion
+```
+
+A downloader supplies a **format handler** with the signature
+`(item, details, dest, session) -> bool`, and `f4wCommon.pipeline` drives the
+rest — resolving destinations, honouring skip/overwrite, fetching detail pages,
+and tallying results. Adding an output format means writing one handler and
+registering it, not another loop.
 
 ---
 
