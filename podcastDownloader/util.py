@@ -15,14 +15,21 @@ from urllib.parse import urlsplit
 
 import requests
 from bs4 import BeautifulSoup
+# mutagen.id3.__all__ lists only ID3, ID3FileType, Frames, Open and delete, so
+# type checkers flag every frame class below as a private import even though
+# they resolve at runtime and are mutagen's documented public API. Importing
+# from mutagen.id3._frames as the checker suggests would be worse: it is a
+# private module, and ID3NoHeaderError isn't even in it (it lives in
+# mutagen.id3._util). Suppress the rule here rather than depend on internals.
+# pyright: reportPrivateImportUsage=false
 from mutagen.id3 import (
     APIC,   # Attached picture (thumbnail artwork)
     COMM,   # Comment (episode description)
     ID3,
     ID3NoHeaderError,
     TALB,   # Album (show name)
-    TDRC,   # Recording date
     TCON,   # Genre / category
+    TDRC,   # Recording date
     TIT2,   # Title
     TPE1,   # Artist (host)
     TRCK,   # Track number (day-of-month for in-month ordering)
