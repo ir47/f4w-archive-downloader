@@ -213,6 +213,14 @@ def _run_downloads(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
+    # --- Config (validate before touching the network or prompting for credentials) ---
+    output_root = Path(args.output) if args.output else DEFAULT_NEWSLETTER_DOWNLOAD_PATH
+    start_date = _parse_date_arg(args.start)
+    end_date = _parse_date_arg(args.end)
+    yearly = not args.no_yearly
+    monthly = not args.no_monthly
+    extension, handler = _FORMATS[args.format]
+
     # --- Auth ---
     # f4wCommon.auth.login() falls back to F4W_USERNAME/F4W_PASSWORD env vars
     # (e.g. from a local, gitignored .env file) before prompting interactively.
@@ -224,14 +232,6 @@ def _run_downloads(args: argparse.Namespace) -> None:
             "You can reset your password at: https://account.f4wonline.com/login?sendpass"
         )
         sys.exit(1)
-
-    # --- Config ---
-    output_root = Path(args.output) if args.output else DEFAULT_NEWSLETTER_DOWNLOAD_PATH
-    start_date = _parse_date_arg(args.start)
-    end_date = _parse_date_arg(args.end)
-    yearly = not args.no_yearly
-    monthly = not args.no_monthly
-    extension, handler = _FORMATS[args.format]
 
     # --- Scrape issue index ---
     issues = scrape_all_issues(session, max_pages=args.max_pages, page_delay=args.page_delay)

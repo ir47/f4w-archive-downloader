@@ -9,6 +9,7 @@ archive pagination, PDF/article-content selectors).
 
 from __future__ import annotations
 
+import html
 import re
 import time
 from datetime import datetime
@@ -46,7 +47,7 @@ DATE_FORMAT_ISO = "%Y-%m-%d"    # e.g. "2026-07-13"
 
 DEFAULT_NEWSLETTER_DOWNLOAD_PATH = Path.home() / "Downloads" / "F4WNewsletters"
 
-_PDF_LINK_RE = re.compile(r"f4wonline\.com.*\.pdf$", re.I)
+_PDF_LINK_RE = re.compile(r"f4wonline\.com.*\.pdf(?:\?.*)?$", re.I)
 _SHARE_CLASS_RE = re.compile(r"share", re.I)
 _PDF_LINK_TEXT_RE = re.compile(r"read this issue in pdf form", re.I)
 
@@ -222,7 +223,7 @@ def save_html(html_content: str, dest_path: Path, title: str) -> bool:
     document = (
         "<!doctype html>\n"
         "<html><head><meta charset=\"utf-8\">"
-        f"<title>{title}</title></head><body>\n"
+        f"<title>{html.escape(title)}</title></head><body>\n"
         f"{html_content}\n"
         "</body></html>\n"
     )
@@ -238,7 +239,9 @@ def save_html(html_content: str, dest_path: Path, title: str) -> bool:
 
 def download_pdf(pdf_url: str, dest_path: Path, session: requests.Session) -> bool:
     """Stream a newsletter PDF to dest_path using the authenticated session."""
-    return stream_download(pdf_url, dest_path, session, skip_existing=False)
+    return stream_download(
+        pdf_url, dest_path, session, skip_existing=False, expected_content_type="application/pdf"
+    )
 
 
 # ---------------------------------------------------------------------------

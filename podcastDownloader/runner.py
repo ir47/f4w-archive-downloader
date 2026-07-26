@@ -175,6 +175,13 @@ def _print_show_list() -> None:
 # ---------------------------------------------------------------------------
 
 def _run_downloads(args: argparse.Namespace) -> None:
+    # --- Config (validate before touching the network or prompting for credentials) ---
+    output_root = Path(args.output) if args.output else DEFAULT_DOWNLOAD_PATH
+    start_date = _parse_date_arg(args.start)
+    end_date = _parse_date_arg(args.end)
+    yearly = not args.no_yearly
+    monthly = not args.no_monthly
+
     # --- Auth ---
     session = create_session()
     if not login(session):
@@ -184,13 +191,6 @@ def _run_downloads(args: argparse.Namespace) -> None:
             "You can reset your password at: https://account.f4wonline.com/login?sendpass"
         )
         sys.exit(1)
-
-    # --- Config ---
-    output_root = Path(args.output) if args.output else DEFAULT_DOWNLOAD_PATH
-    start_date = _parse_date_arg(args.start)
-    end_date = _parse_date_arg(args.end)
-    yearly = not args.no_yearly
-    monthly = not args.no_monthly
 
     # --- Show slug validation ---
     show_filter = args.show if not args.all else None
@@ -231,15 +231,7 @@ def _run_downloads(args: argparse.Namespace) -> None:
     for i, episode in enumerate(episodes, 1):
         print(f"\n[{i}/{len(episodes)}] {episode['title']} ({episode['date']})")
 
-        details = scrape_episode_details(episode["url"], session)
-
-        if not details["mp3_url"]:
-            print(f"  [fail] Could not find MP3 link on {episode['url']}")
-            failed += 1
-            continue
-
         folder = build_download_path(output_root, episode, yearly, monthly)
-        generate_download_directories(folder)
         filename = f"{episode.get('day', '00')}-{sanitize_filename(episode['title'])}.mp3"
         dest = folder / filename
 
@@ -249,9 +241,22 @@ def _run_downloads(args: argparse.Namespace) -> None:
             time.sleep(args.episode_delay)
             continue
 
+        if not generate_download_directories(folder):
+            failed += 1
+            time.sleep(args.episode_delay)
+            continue
+
+        details = scrape_episode_details(episode["url"], session)
+
+        if not details["mp3_url"]:
+            print(f"  [fail] Could not find MP3 link on {episode['url']}")
+            failed += 1
+            time.sleep(args.episode_delay)
+            continue
+
         downloaded = download_podcast(details["mp3_url"], dest, session=session, skip_existing=False)
 
-        if not downloaded or dest.stat().st_size == 0:
+        if not downloaded:
             failed += 1
         else:
             track_num = int(episode.get("day", 0)) or None

@@ -58,6 +58,8 @@ def get_total_pages(page_url_fn, session: requests.Session, fetch_fn=_default_fe
     print(f"  [fetch] {url}")
     resp = fetch_fn(url, session)
     if resp is None:
+        print(f"  [warn] Could not fetch {url} to count pages — assuming 1 page. "
+              "If the site is reachable, this run will look successful but miss everything past page 1.")
         return 1
     soup = BeautifulSoup(resp.text, "html.parser")
     max_page = 1
