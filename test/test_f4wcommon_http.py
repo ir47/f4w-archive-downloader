@@ -1,10 +1,10 @@
 """Unit tests for f4wCommon/http.py"""
+import requests
 import tempfile
+
 from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
-
-import requests
 
 from f4wCommon.http import (
     HTTP_RETRY_COUNT,

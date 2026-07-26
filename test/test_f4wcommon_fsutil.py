@@ -1,12 +1,15 @@
 """Unit tests for f4wCommon/fsutil.py"""
 import tempfile
+
 from pathlib import Path
-from unittest import TestCase, main
 from unittest.mock import patch
+from unittest import TestCase, main
 
 from f4wCommon.fsutil import (
     build_hierarchical_path,
+    build_item_path,
     generate_download_directories,
+    item_filename,
     sanitize_filename,
 )
 
@@ -105,6 +108,69 @@ class TestBuildHierarchicalPath(TestCase):
     def test_unknown_year_still_included_when_yearly(self):
         path = build_hierarchical_path(self.base, "Show A", "Unknown", None, yearly=True, monthly=False)
         self.assertEqual(self.base / "Show A" / "Unknown", path)
+
+
+# ---------------------------------------------------------------------------
+# build_item_path
+# ---------------------------------------------------------------------------
+
+class TestBuildItemPath(TestCase):
+    base = Path("/downloads")
+
+    def _item(self, show="Wrestling Observer Radio", year="2026", month="March"):
+        return {"show": show, "year": year, "month": month}
+
+    def test_base_only(self):
+        path = build_item_path(self.base, self._item(), yearly=False, monthly=False)
+        self.assertEqual(self.base / "Wrestling Observer Radio", path)
+
+    def test_with_yearly(self):
+        path = build_item_path(self.base, self._item(), yearly=True, monthly=False)
+        self.assertEqual(self.base / "Wrestling Observer Radio" / "2026", path)
+
+    def test_with_monthly(self):
+        path = build_item_path(self.base, self._item(), yearly=False, monthly=True)
+        self.assertEqual(self.base / "Wrestling Observer Radio" / "March", path)
+
+    def test_with_yearly_and_monthly(self):
+        path = build_item_path(self.base, self._item(), yearly=True, monthly=True)
+        self.assertEqual(self.base / "Wrestling Observer Radio" / "2026" / "March", path)
+
+    def test_sanitizes_show_name_with_colon(self):
+        path = build_item_path(self.base, self._item(show="Show: Special"), yearly=False, monthly=False)
+        self.assertNotIn(":", str(path))
+
+    def test_unknown_year_still_included_when_yearly(self):
+        path = build_item_path(self.base, self._item(year="Unknown"), yearly=True, monthly=False)
+        self.assertIn("Unknown", str(path))
+
+    def test_missing_date_fields_omit_segments(self):
+        path = build_item_path(self.base, {"show": "Show A"}, yearly=True, monthly=True)
+        self.assertEqual(self.base / "Show A", path)
+
+    def test_newsletter_category_shape(self):
+        item = {"show": "Wrestling Observer Newsletter", "year": "2026", "month": "July"}
+        path = build_item_path(self.base, item, yearly=True, monthly=True)
+        self.assertEqual(self.base / "Wrestling Observer Newsletter" / "2026" / "July", path)
+
+
+# ---------------------------------------------------------------------------
+# item_filename
+# ---------------------------------------------------------------------------
+
+class TestItemFilename(TestCase):
+    def test_builds_expected_filename(self):
+        item = {"day": "13", "title": "Observer Newsletter: July 13"}
+        self.assertEqual("13-Observer Newsletter_ July 13.pdf", item_filename(item, "pdf"))
+
+    def test_defaults_day_to_00_when_missing(self):
+        self.assertEqual("00-Issue.epub", item_filename({"title": "Issue"}, "epub"))
+
+    def test_sanitizes_title(self):
+        self.assertEqual("05-Show_Ep.mp3", item_filename({"day": "05", "title": "Show/Ep"}, "mp3"))
+
+    def test_respects_extension(self):
+        self.assertEqual("01-A.mp3", item_filename({"day": "01", "title": "A"}, "mp3"))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 """Unit tests for newsletterDownloader/runner.py"""
-from datetime import datetime
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
 
@@ -8,8 +7,6 @@ from newsletterDownloader.runner import (
     _download_html_format,
     _download_kindle_format,
     _download_pdf_format,
-    _in_date_range,
-    _parse_date_arg,
     _run_downloads,
 )
 
@@ -62,13 +59,17 @@ class TestBuildParser(TestCase):
         args = self.parser.parse_args(["--no-monthly"])
         self.assertTrue(args.no_monthly)
 
-    def test_issue_delay_default(self):
+    def test_item_delay_default(self):
         args = self.parser.parse_args([])
-        self.assertAlmostEqual(0.5, args.issue_delay)
+        self.assertAlmostEqual(0.5, args.item_delay)
 
-    def test_issue_delay_argument(self):
+    def test_item_delay_argument(self):
+        args = self.parser.parse_args(["--item-delay", "2.0"])
+        self.assertAlmostEqual(2.0, args.item_delay)
+
+    def test_legacy_issue_delay_alias_still_accepted(self):
         args = self.parser.parse_args(["--issue-delay", "2.0"])
-        self.assertAlmostEqual(2.0, args.issue_delay)
+        self.assertAlmostEqual(2.0, args.item_delay)
 
     def test_overwrite_flag(self):
         args = self.parser.parse_args(["--overwrite"])
@@ -77,35 +78,6 @@ class TestBuildParser(TestCase):
     def test_dry_run_flag(self):
         args = self.parser.parse_args(["--dry-run"])
         self.assertTrue(args.dry_run)
-
-
-# ---------------------------------------------------------------------------
-# _parse_date_arg / _in_date_range
-# ---------------------------------------------------------------------------
-
-class TestParseDateArg(TestCase):
-    def test_none_returns_none(self):
-        self.assertIsNone(_parse_date_arg(None))
-
-    def test_valid_date_parsed_correctly(self):
-        self.assertEqual(datetime(2026, 7, 13), _parse_date_arg("July 13, 2026"))
-
-    def test_garbage_input_exits(self):
-        with self.assertRaises(SystemExit):
-            _parse_date_arg("not a date at all")
-
-
-class TestInDateRange(TestCase):
-    def test_missing_datetime_key_returns_true(self):
-        self.assertTrue(_in_date_range({}, None, None))
-
-    def test_before_start_returns_false(self):
-        issue = {"datetime": datetime(2025, 12, 31)}
-        self.assertFalse(_in_date_range(issue, datetime(2026, 1, 1), None))
-
-    def test_within_range_returns_true(self):
-        issue = {"datetime": datetime(2026, 7, 13)}
-        self.assertTrue(_in_date_range(issue, datetime(2026, 1, 1), datetime(2026, 12, 31)))
 
 
 # ---------------------------------------------------------------------------
@@ -202,13 +174,13 @@ class TestRunDownloadsGating(TestCase):
     def test_exits_before_login_when_calibre_missing_for_kindle_format(self, mock_calibre):
         mock_calibre.return_value = False
         args = _build_parser().parse_args(["--format", "kindle"])
-        with patch("newsletterDownloader.runner.login") as mock_login:
+        with patch("f4wCommon.cli.login") as mock_login:
             with self.assertRaises(SystemExit):
                 _run_downloads(args)
             mock_login.assert_not_called()
 
     @patch("newsletterDownloader.runner.create_session")
-    @patch("newsletterDownloader.runner.login")
+    @patch("f4wCommon.cli.login")
     def test_exits_when_login_fails(self, mock_login, mock_create_session):
         mock_login.return_value = False
         args = _build_parser().parse_args(["--format", "pdf"])
@@ -217,7 +189,7 @@ class TestRunDownloadsGating(TestCase):
 
     @patch("newsletterDownloader.runner.scrape_all_issues")
     @patch("newsletterDownloader.runner.create_session")
-    @patch("newsletterDownloader.runner.login")
+    @patch("f4wCommon.cli.login")
     def test_returns_without_error_when_no_issues_found(self, mock_login, mock_create_session, mock_scrape):
         mock_login.return_value = True
         mock_scrape.return_value = []
@@ -226,7 +198,7 @@ class TestRunDownloadsGating(TestCase):
 
     @patch("newsletterDownloader.runner.scrape_all_issues")
     @patch("newsletterDownloader.runner.create_session")
-    @patch("newsletterDownloader.runner.login")
+    @patch("f4wCommon.cli.login")
     def test_calls_login_with_no_explicit_credentials(self, mock_login, mock_create_session, mock_scrape):
         # Env-var/prompt fallback now lives in f4wCommon.auth.login itself
         # (see test_f4wcommon_auth.py) — the runner just calls login(session).
@@ -237,10 +209,10 @@ class TestRunDownloadsGating(TestCase):
         mock_login.assert_called_once_with(mock_create_session.return_value)
 
     @patch("newsletterDownloader.runner.scrape_issue_details")
-    @patch("newsletterDownloader.runner.generate_download_directories")
+    @patch("f4wCommon.pipeline.generate_download_directories")
     @patch("newsletterDownloader.runner.scrape_all_issues")
     @patch("newsletterDownloader.runner.create_session")
-    @patch("newsletterDownloader.runner.login")
+    @patch("f4wCommon.cli.login")
     def test_skips_issue_when_directory_creation_fails(
         self, mock_login, mock_create_session, mock_scrape_issues, mock_gen_dirs, mock_scrape_details
     ):

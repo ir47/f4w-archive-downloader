@@ -27,29 +27,23 @@ python runner.py --show after-dark --overwrite
 
 from __future__ import annotations
 
-import argparse
 import sys
-import time
-from datetime import datetime
+import argparse
+
 from pathlib import Path
 
-from f4wCommon.dates import in_date_range, parse_date_arg
-
 from podcastDownloader.util import (
-    DATE_FORMAT_IN,
     DEFAULT_DOWNLOAD_PATH,
     SHOW_SLUGS,
-    build_download_path,
-    create_session,
     download_podcast,
-    enrich_episode,
-    generate_download_directories,
-    login,
-    sanitize_filename,
     scrape_all_episodes,
     scrape_episode_details,
     write_id3_tags,
 )
+from f4wCommon.http import create_session
+from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range
+from f4wCommon.cli import add_common_arguments, login_or_exit, parse_cli_date
+from f4wCommon.pipeline import print_dry_run, print_summary, run_download_loop
 
 
 # ---------------------------------------------------------------------------
@@ -83,79 +77,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print all available show slugs and exit.",
     )
 
-    parser.add_argument(
-        "--output", "-o",
-        metavar="PATH",
-        default=None,
-        help=f"Root download directory (default: {DEFAULT_DOWNLOAD_PATH}).",
+    add_common_arguments(
+        parser,
+        default_output=DEFAULT_DOWNLOAD_PATH,
+        item_noun="episode",
+        delay_aliases=("--episode-delay",),
     )
-    parser.add_argument(
-        "--start",
-        metavar="DATE",
-        default=None,
-        help="Only download episodes on or after this date, e.g. 'January 1, 2025'.",
-    )
-    parser.add_argument(
-        "--end",
-        metavar="DATE",
-        default=None,
-        help="Only download episodes on or before this date, e.g. 'March 17, 2026'.",
-    )
-    parser.add_argument(
-        "--max-pages",
-        metavar="N",
-        type=int,
-        default=None,
-        help="Limit pages scraped per show (useful for testing).",
-    )
-    parser.add_argument(
-        "--no-yearly",
-        action="store_true",
-        help="Don't create per-year sub-folders.",
-    )
-    parser.add_argument(
-        "--no-monthly",
-        action="store_true",
-        help="Don't create per-month sub-folders.",
-    )
-    parser.add_argument(
-        "--page-delay",
-        metavar="SECONDS",
-        type=float,
-        default=1.0,
-        help="Seconds to sleep between index page requests (default: 1.0).",
-    )
-    parser.add_argument(
-        "--episode-delay",
-        metavar="SECONDS",
-        type=float,
-        default=0.5,
-        help="Seconds to sleep between individual episode requests (default: 0.5).",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Re-download episodes that already exist on disk.",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print what would be downloaded without actually downloading.",
-    )
-
     return parser
-
-
-# ---------------------------------------------------------------------------
-# Date filtering
-# ---------------------------------------------------------------------------
-
-def _parse_date_arg(value: str | None) -> datetime | None:
-    """Parse a CLI date string. Exits with an error message on bad input."""
-    return parse_date_arg(value, DATE_FORMAT_IN, "January 1, 2025")
-
-
-_in_date_range = in_date_range
 
 
 # ---------------------------------------------------------------------------
@@ -171,26 +99,39 @@ def _print_show_list() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Format handler
+# ---------------------------------------------------------------------------
+
+def _download_mp3_format(episode: dict, details: dict, dest: Path, session) -> bool:
+    """Download the episode MP3 and embed its ID3 tags."""
+    if not details["mp3_url"]:
+        print(f"  [fail] Could not find MP3 link on {episode['url']}")
+        return False
+
+    if not download_podcast(details["mp3_url"], dest, session=session, skip_existing=False):
+        return False
+
+    # Track number is the day-of-month, so episodes sort within their folder.
+    track_num = int(episode.get("day", 0)) or None
+    write_id3_tags(dest, episode, details, track_number=track_num)
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Download workflow
 # ---------------------------------------------------------------------------
 
 def _run_downloads(args: argparse.Namespace) -> None:
     # --- Config (validate before touching the network or prompting for credentials) ---
     output_root = Path(args.output) if args.output else DEFAULT_DOWNLOAD_PATH
-    start_date = _parse_date_arg(args.start)
-    end_date = _parse_date_arg(args.end)
+    start_date = parse_cli_date(args.start)
+    end_date = parse_cli_date(args.end)
     yearly = not args.no_yearly
     monthly = not args.no_monthly
 
     # --- Auth ---
     session = create_session()
-    if not login(session):
-        print(
-            "\n[error] Could not log in to F4WOnline.\n"
-            "Please check your credentials and that your subscription is active.\n"
-            "You can reset your password at: https://account.f4wonline.com/login?sendpass"
-        )
-        sys.exit(1)
+    login_or_exit(session)
 
     # --- Show slug validation ---
     show_filter = args.show if not args.all else None
@@ -212,63 +153,29 @@ def _run_downloads(args: argparse.Namespace) -> None:
         return
 
     # --- Enrich dates and apply date range filter ---
-    episodes = [enrich_episode(ep) for ep in episodes]
-    episodes = [ep for ep in episodes if _in_date_range(ep, start_date, end_date)]
+    episodes = [enrich_with_date(ep, DATE_FORMAT_IN) for ep in episodes]
+    episodes = [ep for ep in episodes if in_date_range(ep, start_date, end_date)]
     print(f"{len(episodes)} episode(s) after date filtering.")
 
     # --- Dry run ---
     if args.dry_run:
-        print("\n--- DRY RUN: episodes that would be downloaded ---")
-        for ep in episodes:
-            folder = build_download_path(output_root, ep, yearly, monthly)
-            filename = f"{ep.get('day', '00')}-{sanitize_filename(ep['title'])}.mp3"
-            print(f"  {folder / filename}")
+        print_dry_run(episodes, output_root, "mp3", yearly, monthly, item_noun="episode")
         return
 
     # --- Download loop ---
-    success, skipped, failed = 0, 0, 0
-
-    for i, episode in enumerate(episodes, 1):
-        print(f"\n[{i}/{len(episodes)}] {episode['title']} ({episode['date']})")
-
-        folder = build_download_path(output_root, episode, yearly, monthly)
-        filename = f"{episode.get('day', '00')}-{sanitize_filename(episode['title'])}.mp3"
-        dest = folder / filename
-
-        if dest.exists() and not args.overwrite:
-            print(f"  [skip] Already exists: {dest.name}")
-            skipped += 1
-            time.sleep(args.episode_delay)
-            continue
-
-        if not generate_download_directories(folder):
-            failed += 1
-            time.sleep(args.episode_delay)
-            continue
-
-        details = scrape_episode_details(episode["url"], session)
-
-        if not details["mp3_url"]:
-            print(f"  [fail] Could not find MP3 link on {episode['url']}")
-            failed += 1
-            time.sleep(args.episode_delay)
-            continue
-
-        downloaded = download_podcast(details["mp3_url"], dest, session=session, skip_existing=False)
-
-        if not downloaded:
-            failed += 1
-        else:
-            track_num = int(episode.get("day", 0)) or None
-            write_id3_tags(dest, episode, details, track_number=track_num)
-            success += 1
-
-        time.sleep(args.episode_delay)
-
-    # --- Summary ---
-    print(f"\n{'=' * 50}")
-    print(f"Done.  Downloaded: {success}  |  Skipped: {skipped}  |  Failed: {failed}")
-    print(f"Files saved to: {output_root}")
+    success, skipped, failed = run_download_loop(
+        episodes,
+        session,
+        output_root,
+        extension="mp3",
+        handler=_download_mp3_format,
+        scrape_details=scrape_episode_details,
+        yearly=yearly,
+        monthly=monthly,
+        overwrite=args.overwrite,
+        item_delay=args.item_delay,
+    )
+    print_summary(success, skipped, failed, output_root)
 
 
 # ---------------------------------------------------------------------------
