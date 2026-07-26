@@ -27,7 +27,13 @@ REQUEST_HEADERS: dict = {
         "text/html,application/xhtml+xml,application/xml;q=0.9,"
         "image/avif,image/webp,*/*;q=0.8"
     ),
-    "Referer": "https://archive.f4wonline.com/",
+    # The site ignores Referer entirely — verified against the live archive on
+    # 2026-07-26: podcast pages, the members newsletter archive and the media
+    # server all return byte-identical responses with this set correctly, set
+    # to the old archive.f4wonline.com value, or omitted altogether. Kept only
+    # because the rest of these headers mimic a browser, and pointed at the
+    # domain actually being fetched rather than one nothing requests.
+    "Referer": "https://www.f4wonline.com/",
 }
 
 
