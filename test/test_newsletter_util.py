@@ -1,6 +1,5 @@
 """Unit tests for newsletterDownloader/util.py"""
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
@@ -12,12 +11,8 @@ from newsletterDownloader.util import (
     _get_total_pages,
     _parse_date_from_slug,
     _scrape_archive_page,
-    build_newsletter_path,
     clean_html_for_ebook,
     download_pdf,
-    enrich_issue,
-    newsletter_filename,
-    parse_issue_date,
     save_html,
     scrape_all_issues,
     scrape_issue_details,
@@ -331,61 +326,6 @@ class TestDownloadPdf(TestCase):
             result = download_pdf("https://example.com/issue.pdf", dest, mock_session)
             self.assertTrue(result)
             self.assertEqual(b"PDFDATA", dest.read_bytes())
-
-
-# ---------------------------------------------------------------------------
-# parse_issue_date / enrich_issue
-# ---------------------------------------------------------------------------
-
-class TestParseIssueDate(TestCase):
-    def test_valid_date(self):
-        self.assertEqual(datetime(2026, 7, 13), parse_issue_date("July 13, 2026"))
-
-    def test_garbage_returns_none(self):
-        self.assertIsNone(parse_issue_date("not a date"))
-
-
-class TestEnrichIssue(TestCase):
-    def test_enriches_valid_date(self):
-        issue = {"date": "July 13, 2026", "title": "Issue"}
-        enrich_issue(issue)
-        self.assertEqual("2026", issue["year"])
-        self.assertEqual("July", issue["month"])
-        self.assertEqual("13", issue["day"])
-
-    def test_fallback_on_invalid_date(self):
-        issue = {"date": "bad date"}
-        enrich_issue(issue)
-        self.assertEqual("Unknown", issue["year"])
-        self.assertIsNone(issue["datetime"])
-
-
-# ---------------------------------------------------------------------------
-# build_newsletter_path / newsletter_filename
-# ---------------------------------------------------------------------------
-
-class TestBuildNewsletterPath(TestCase):
-    base = Path("/downloads")
-
-    def test_base_only(self):
-        issue = {}
-        path = build_newsletter_path(self.base, issue, yearly=False, monthly=False)
-        self.assertEqual(self.base / NEWSLETTER_CATEGORY_NAME, path)
-
-    def test_with_yearly_and_monthly(self):
-        issue = {"year": "2026", "month": "July"}
-        path = build_newsletter_path(self.base, issue, yearly=True, monthly=True)
-        self.assertEqual(self.base / NEWSLETTER_CATEGORY_NAME / "2026" / "July", path)
-
-
-class TestNewsletterFilename(TestCase):
-    def test_builds_expected_filename(self):
-        issue = {"day": "13", "title": "Observer Newsletter: July 13"}
-        self.assertEqual("13-Observer Newsletter_ July 13.pdf", newsletter_filename(issue, "pdf"))
-
-    def test_defaults_day_to_00_when_missing(self):
-        issue = {"title": "Issue"}
-        self.assertEqual("00-Issue.epub", newsletter_filename(issue, "epub"))
 
 
 if __name__ == "__main__":

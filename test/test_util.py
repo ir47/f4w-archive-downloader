@@ -9,16 +9,12 @@ import requests
 
 from podcastDownloader.util import (
     CATEGORY_BASE,
-    SHOW_SLUGS,
     _category_url,
     _fetch_thumbnail,
     _get_total_pages,
     _scrape_category_page,
     _thumbnail_mime_type,
-    build_download_path,
     download_podcast,
-    enrich_episode,
-    parse_episode_date,
     scrape_all_episodes,
     scrape_episode_details,
     write_id3_tags,
@@ -317,105 +313,6 @@ class TestScrapeEpisodeDetails(TestCase):
         mock_fetch.return_value = MagicMock(text="<html><body>No mp3 here</body></html>")
         result = scrape_episode_details("https://example.com/ep/", MagicMock())
         self.assertIsNone(result["mp3_url"])
-
-
-# ---------------------------------------------------------------------------
-# parse_episode_date
-# ---------------------------------------------------------------------------
-
-class TestParseEpisodeDate(TestCase):
-    def test_valid_date(self):
-        self.assertEqual(datetime(2026, 3, 17), parse_episode_date("March 17, 2026"))
-
-    def test_valid_date_january(self):
-        self.assertEqual(datetime(2025, 1, 1), parse_episode_date("January 01, 2025"))
-
-    def test_valid_date_december(self):
-        self.assertEqual(datetime(2024, 12, 31), parse_episode_date("December 31, 2024"))
-
-    def test_invalid_format_returns_none(self):
-        self.assertIsNone(parse_episode_date("2026-03-17"))
-
-    def test_garbage_returns_none(self):
-        self.assertIsNone(parse_episode_date("not a date"))
-
-    def test_none_returns_none(self):
-        self.assertIsNone(parse_episode_date(None))
-
-    def test_empty_string_returns_none(self):
-        self.assertIsNone(parse_episode_date(""))
-
-
-# ---------------------------------------------------------------------------
-# enrich_episode
-# ---------------------------------------------------------------------------
-
-class TestEnrichEpisode(TestCase):
-    def test_enriches_valid_date(self):
-        ep = {"date": "March 17, 2026", "title": "Ep"}
-        enrich_episode(ep)
-        self.assertEqual("2026", ep["year"])
-        self.assertEqual("March", ep["month"])
-        self.assertEqual("17", ep["day"])
-        self.assertIsInstance(ep["datetime"], datetime)
-
-    def test_fallback_on_invalid_date(self):
-        ep = {"date": "bad date"}
-        enrich_episode(ep)
-        self.assertEqual("Unknown", ep["year"])
-        self.assertEqual("Unknown", ep["month"])
-        self.assertEqual("00", ep["day"])
-        self.assertIsNone(ep["datetime"])
-
-    def test_fallback_on_missing_date_key(self):
-        ep = {}
-        enrich_episode(ep)
-        self.assertEqual("Unknown", ep["year"])
-        self.assertIsNone(ep["datetime"])
-
-    def test_returns_same_dict(self):
-        ep = {"date": "March 17, 2026"}
-        self.assertIs(ep, enrich_episode(ep))
-
-    def test_day_padded_with_zero(self):
-        ep = {"date": "March 05, 2026"}
-        enrich_episode(ep)
-        self.assertEqual("05", ep["day"])
-
-
-# ---------------------------------------------------------------------------
-# build_download_path
-# ---------------------------------------------------------------------------
-
-class TestBuildDownloadPath(TestCase):
-    def _ep(self, show="Wrestling Observer Radio", year="2026", month="March"):
-        return {"show": show, "year": year, "month": month}
-
-    def test_base_only(self):
-        path = build_download_path(Path("/base"), self._ep(), yearly=False, monthly=False)
-        self.assertEqual(Path("/base/Wrestling Observer Radio"), path)
-
-    def test_with_yearly(self):
-        path = build_download_path(Path("/base"), self._ep(), yearly=True, monthly=False)
-        self.assertEqual(Path("/base/Wrestling Observer Radio/2026"), path)
-
-    def test_with_monthly(self):
-        path = build_download_path(Path("/base"), self._ep(), yearly=False, monthly=True)
-        self.assertEqual(Path("/base/Wrestling Observer Radio/March"), path)
-
-    def test_with_yearly_and_monthly(self):
-        path = build_download_path(Path("/base"), self._ep(), yearly=True, monthly=True)
-        self.assertEqual(Path("/base/Wrestling Observer Radio/2026/March"), path)
-
-    def test_sanitizes_show_name_with_colon(self):
-        ep = self._ep(show="Show: Special")
-        path = build_download_path(Path("/base"), ep, yearly=False, monthly=False)
-        self.assertNotIn(":", str(path))
-
-    def test_unknown_year_still_included_when_yearly(self):
-        ep = self._ep(year="Unknown")
-        path = build_download_path(Path("/base"), ep, yearly=True, monthly=False)
-        self.assertIn("Unknown", str(path))
 
 
 # ---------------------------------------------------------------------------

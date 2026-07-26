@@ -34,17 +34,14 @@ from datetime import datetime
 from pathlib import Path
 
 from f4wCommon.auth import login
-from f4wCommon.dates import in_date_range, parse_date_arg
-from f4wCommon.fsutil import generate_download_directories, sanitize_filename
+from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range, parse_date_arg
+from f4wCommon.fsutil import build_item_path, generate_download_directories, item_filename
 from f4wCommon.http import create_session
 
 from podcastDownloader.util import (
-    DATE_FORMAT_IN,
     DEFAULT_DOWNLOAD_PATH,
     SHOW_SLUGS,
-    build_download_path,
     download_podcast,
-    enrich_episode,
     scrape_all_episodes,
     scrape_episode_details,
     write_id3_tags,
@@ -211,7 +208,7 @@ def _run_downloads(args: argparse.Namespace) -> None:
         return
 
     # --- Enrich dates and apply date range filter ---
-    episodes = [enrich_episode(ep) for ep in episodes]
+    episodes = [enrich_with_date(ep, DATE_FORMAT_IN) for ep in episodes]
     episodes = [ep for ep in episodes if _in_date_range(ep, start_date, end_date)]
     print(f"{len(episodes)} episode(s) after date filtering.")
 
@@ -219,9 +216,8 @@ def _run_downloads(args: argparse.Namespace) -> None:
     if args.dry_run:
         print("\n--- DRY RUN: episodes that would be downloaded ---")
         for ep in episodes:
-            folder = build_download_path(output_root, ep, yearly, monthly)
-            filename = f"{ep.get('day', '00')}-{sanitize_filename(ep['title'])}.mp3"
-            print(f"  {folder / filename}")
+            folder = build_item_path(output_root, ep, yearly, monthly)
+            print(f"  {folder / item_filename(ep, 'mp3')}")
         return
 
     # --- Download loop ---
@@ -230,9 +226,8 @@ def _run_downloads(args: argparse.Namespace) -> None:
     for i, episode in enumerate(episodes, 1):
         print(f"\n[{i}/{len(episodes)}] {episode['title']} ({episode['date']})")
 
-        folder = build_download_path(output_root, episode, yearly, monthly)
-        filename = f"{episode.get('day', '00')}-{sanitize_filename(episode['title'])}.mp3"
-        dest = folder / filename
+        folder = build_item_path(output_root, episode, yearly, monthly)
+        dest = folder / item_filename(episode, "mp3")
 
         if dest.exists() and not args.overwrite:
             print(f"  [skip] Already exists: {dest.name}")

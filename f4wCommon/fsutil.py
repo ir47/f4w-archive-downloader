@@ -47,3 +47,21 @@ def build_hierarchical_path(
     if monthly and month:
         path = path / month
     return path
+
+
+def build_item_path(base_path: Path, item: dict, yearly: bool, monthly: bool) -> Path:
+    """
+    Construct the output directory for a scraped item (podcast episode or
+    newsletter issue), reading the category from ``item["show"]`` and the
+    date segments from the fields added by ``enrich_with_date``:
+
+        base_path / Show Name / Year / Month /
+    """
+    return build_hierarchical_path(
+        base_path, item.get("show", ""), item.get("year"), item.get("month"), yearly, monthly
+    )
+
+
+def item_filename(item: dict, extension: str) -> str:
+    """Build the '<day>-<sanitized-title>.<ext>' filename for a scraped item."""
+    return f"{item.get('day', '00')}-{sanitize_filename(item['title'])}.{extension}"

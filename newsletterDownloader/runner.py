@@ -34,19 +34,15 @@ from datetime import datetime
 from pathlib import Path
 
 from f4wCommon.auth import login
-from f4wCommon.dates import in_date_range, parse_date_arg
-from f4wCommon.fsutil import generate_download_directories
+from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range, parse_date_arg
+from f4wCommon.fsutil import build_item_path, generate_download_directories, item_filename
 from f4wCommon.http import create_session
 
 from newsletterDownloader.kindle import calibre_available, convert_to_ebook
 from newsletterDownloader.util import (
-    DATE_FORMAT_IN,
     DEFAULT_NEWSLETTER_DOWNLOAD_PATH,
-    build_newsletter_path,
     clean_html_for_ebook,
     download_pdf,
-    enrich_issue,
-    newsletter_filename,
     save_html,
     scrape_all_issues,
     scrape_issue_details,
@@ -241,7 +237,7 @@ def _run_downloads(args: argparse.Namespace) -> None:
         return
 
     # --- Enrich dates and apply date range filter ---
-    issues = [enrich_issue(issue) for issue in issues]
+    issues = [enrich_with_date(issue, DATE_FORMAT_IN) for issue in issues]
     issues = [issue for issue in issues if _in_date_range(issue, start_date, end_date)]
     print(f"{len(issues)} issue(s) after date filtering.")
 
@@ -249,9 +245,8 @@ def _run_downloads(args: argparse.Namespace) -> None:
     if args.dry_run:
         print("\n--- DRY RUN: issues that would be downloaded ---")
         for issue in issues:
-            folder = build_newsletter_path(output_root, issue, yearly, monthly)
-            filename = newsletter_filename(issue, extension)
-            print(f"  {folder / filename}")
+            folder = build_item_path(output_root, issue, yearly, monthly)
+            print(f"  {folder / item_filename(issue, extension)}")
         return
 
     # --- Download loop ---
@@ -260,9 +255,8 @@ def _run_downloads(args: argparse.Namespace) -> None:
     for i, issue in enumerate(issues, 1):
         print(f"\n[{i}/{len(issues)}] {issue['title']} ({issue['date']})")
 
-        folder = build_newsletter_path(output_root, issue, yearly, monthly)
-        filename = newsletter_filename(issue, extension)
-        dest = folder / filename
+        folder = build_item_path(output_root, issue, yearly, monthly)
+        dest = folder / item_filename(issue, extension)
 
         if dest.exists() and not args.overwrite:
             print(f"  [skip] Already exists: {dest.name}")

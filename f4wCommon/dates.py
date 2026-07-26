@@ -10,6 +10,15 @@ import sys
 from datetime import datetime
 
 
+# ---------------------------------------------------------------------------
+# Date formats
+# ---------------------------------------------------------------------------
+
+# Both F4WOnline archives render dates the same way, so these are shared.
+DATE_FORMAT_IN = "%B %d, %Y"    # e.g. "March 17, 2026" — scraped dates
+DATE_FORMAT_ISO = "%Y-%m-%d"    # e.g. "2026-03-17"     — <time> attrs, ID3 tags
+
+
 def parse_date(date_str: str | None, fmt: str) -> datetime | None:
     """Parse a scraped date string using *fmt*, e.g. '%B %d, %Y'."""
     try:

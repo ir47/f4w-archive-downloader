@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -29,8 +28,7 @@ from mutagen.id3 import (
     WOAS,   # Official audio source URL (episode page URL)
 )
 
-from f4wCommon.dates import enrich_with_date, parse_date
-from f4wCommon.fsutil import build_hierarchical_path
+from f4wCommon.dates import DATE_FORMAT_ISO
 from f4wCommon.http import (
     HTTP_TIMEOUT_DOWNLOAD,
     REQUEST_HEADERS,
@@ -38,9 +36,9 @@ from f4wCommon.http import (
     stream_download,
 )
 from f4wCommon.scrape import (
-    extract_time_element_date,
     find_content_container,
     get_total_pages,
+    scrape_listing_page,
 )
 
 
@@ -49,7 +47,6 @@ from f4wCommon.scrape import (
 # ---------------------------------------------------------------------------
 
 CATEGORY_BASE = "https://www.f4wonline.com/category/podcasts/"
-MEDIA_BASE = "https://media001.f4wonline.com/dmdocuments/"
 
 
 # ---------------------------------------------------------------------------
@@ -61,14 +58,6 @@ DOWNLOAD_HEADERS: dict = {
     "authority": "media001.f4wonline.com",
     "cache-control": "no-cache",
 }
-
-
-# ---------------------------------------------------------------------------
-# Date formats
-# ---------------------------------------------------------------------------
-
-DATE_FORMAT_IN = "%B %d, %Y"   # e.g. "March 17, 2026"  — scraped dates
-DATE_FORMAT_ISO = "%Y-%m-%d"   # e.g. "2026-03-17"       — ID3 tags and <time> attrs
 
 
 # ---------------------------------------------------------------------------
@@ -130,51 +119,34 @@ def _get_total_pages(slug: str, session: requests.Session) -> int:
     return get_total_pages(lambda page: _category_url(slug, page), session, fetch_fn=fetch_page)
 
 
+def _is_episode_link(post_url: str) -> bool:
+    """
+    Return True if a heading link on a category page points at an episode.
+
+    Accepts any URL under /podcasts/ — some older episodes lack a show
+    subfolder (e.g. /podcasts/episode-title/ instead of
+    /podcasts/show-slug/episode-title/) but are still valid.
+    """
+    if "/podcasts/" not in post_url:
+        return False
+    return "/category/" not in post_url and "how-to-listen" not in post_url
+
+
 def _scrape_category_page(slug: str, page: int, session: requests.Session) -> list:
     """
     Scrape one page of a show's category archive.
 
     Returns a list of episode dicts: { title, url, date, show, show_slug }
     """
-    url = _category_url(slug, page)
-    print(f"  [fetch] {url}")
-    resp = fetch_page(url, session)
-    if resp is None:
-        return []
-
-    soup = BeautifulSoup(resp.text, "html.parser")
     show_name = SHOW_SLUGS.get(slug, slug.replace("-", " ").title())
-    entries = []
-
-    for heading in soup.select("h3 a[href], h2 a[href]"):
-        post_url = heading["href"]
-
-        # Accept any URL under /podcasts/ — some older episodes lack a show
-        # subfolder (e.g. /podcasts/episode-title/ instead of
-        # /podcasts/show-slug/episode-title/) but are still valid.
-        if "/podcasts/" not in post_url:
-            continue
-        if "/category/" in post_url or "how-to-listen" in post_url:
-            continue
-
-        title = heading.get_text(strip=True)
-        if not title:
-            continue
-
-        # Prefer the ISO datetime attribute on a <time> element for accuracy.
-        container = heading.find_parent("article") or heading.find_parent("div")
-        date_text = extract_time_element_date(container, DATE_FORMAT_ISO, DATE_FORMAT_IN)
-
-        entries.append({
-            "title": title,
-            "url": post_url,
-            "date": date_text,
-            "show": show_name,
-            "show_slug": slug,
-        })
-
-    print(f"  [parse] {len(entries)} episodes on page {page}")
-    return entries
+    return scrape_listing_page(
+        _category_url(slug, page),
+        session,
+        link_filter=_is_episode_link,
+        extra_fields={"show": show_name, "show_slug": slug},
+        item_noun="episode(s)",
+        fetch_fn=fetch_page,
+    )
 
 
 def scrape_all_episodes(
@@ -301,41 +273,6 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
             result["thumbnail_url"] = img["src"]
 
     return result
-
-
-# ---------------------------------------------------------------------------
-# Date helpers
-# ---------------------------------------------------------------------------
-
-def parse_episode_date(date_str: str) -> datetime | None:
-    """Parse a scraped date string like 'March 17, 2026' into a datetime."""
-    return parse_date(date_str, DATE_FORMAT_IN)
-
-
-def enrich_episode(episode: dict) -> dict:
-    """
-    Add parsed date fields to an episode dict in-place.
-
-    Adds: year (str), month (str), day (str), datetime (datetime | None)
-    Falls back to 'Unknown' / '00' when the date cannot be parsed.
-    """
-    return enrich_with_date(episode, DATE_FORMAT_IN)
-
-
-# ---------------------------------------------------------------------------
-# File system helpers
-# ---------------------------------------------------------------------------
-
-def build_download_path(base_path: Path, episode: dict, yearly: bool, monthly: bool) -> Path:
-    """
-    Construct the output directory for an episode.
-
-    Structure (with both flags enabled):
-        base_path / Show Name / Year / Month /
-    """
-    return build_hierarchical_path(
-        base_path, episode["show"], episode.get("year"), episode.get("month"), yearly, monthly
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -18,10 +18,9 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-from f4wCommon.dates import enrich_with_date, parse_date
-from f4wCommon.fsutil import build_hierarchical_path, sanitize_filename
+from f4wCommon.dates import DATE_FORMAT_IN
 from f4wCommon.http import fetch_page, stream_download
-from f4wCommon.scrape import extract_time_element_date, find_content_container, get_total_pages
+from f4wCommon.scrape import find_content_container, get_total_pages, scrape_listing_page
 
 
 # ---------------------------------------------------------------------------
@@ -31,14 +30,6 @@ from f4wCommon.scrape import extract_time_element_date, find_content_container, 
 ARCHIVE_BASE = "https://members.f4wonline.com/wrestling-observer-newsletter/"
 
 NEWSLETTER_CATEGORY_NAME = "Wrestling Observer Newsletter"
-
-
-# ---------------------------------------------------------------------------
-# Date formats
-# ---------------------------------------------------------------------------
-
-DATE_FORMAT_IN = "%B %d, %Y"    # e.g. "July 13, 2026" — scraped dates
-DATE_FORMAT_ISO = "%Y-%m-%d"    # e.g. "2026-07-13"
 
 
 # ---------------------------------------------------------------------------
@@ -94,42 +85,17 @@ def _scrape_archive_page(page: int, session: requests.Session) -> list:
     """
     Scrape one page of the newsletter archive.
 
-    Returns a list of issue dicts: { title, url, date }
+    Returns a list of issue dicts: { title, url, date, show }
     """
-    url = _archive_url(page)
-    print(f"  [fetch] {url}")
-    resp = fetch_page(url, session)
-    if resp is None:
-        return []
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    entries = []
-
-    for heading in soup.select("h3 a[href], h2 a[href]"):
-        post_url = heading["href"]
-        if "/category/" in post_url:
-            continue
-
-        title = heading.get_text(strip=True)
-        if not title:
-            continue
-
-        # Prefer the ISO datetime attribute on a <time> element for accuracy.
-        container = heading.find_parent("article") or heading.find_parent("div")
-        date_text = extract_time_element_date(container, DATE_FORMAT_ISO, DATE_FORMAT_IN)
-
-        if not date_text:
-            date_text = _parse_date_from_slug(post_url)
-
-        entries.append({
-            "title": title,
-            "url": post_url,
-            "date": date_text,
-            "show": NEWSLETTER_CATEGORY_NAME,
-        })
-
-    print(f"  [parse] {len(entries)} issue(s) on page {page}")
-    return entries
+    return scrape_listing_page(
+        _archive_url(page),
+        session,
+        link_filter=lambda post_url: "/category/" not in post_url,
+        extra_fields={"show": NEWSLETTER_CATEGORY_NAME},
+        date_fallback=_parse_date_from_slug,
+        item_noun="issue(s)",
+        fetch_fn=fetch_page,
+    )
 
 
 def scrape_all_issues(
@@ -244,41 +210,3 @@ def download_pdf(pdf_url: str, dest_path: Path, session: requests.Session) -> bo
     )
 
 
-# ---------------------------------------------------------------------------
-# Date helpers
-# ---------------------------------------------------------------------------
-
-def parse_issue_date(date_str: str) -> datetime | None:
-    """Parse a scraped date string like 'July 13, 2026' into a datetime."""
-    return parse_date(date_str, DATE_FORMAT_IN)
-
-
-def enrich_issue(issue: dict) -> dict:
-    """
-    Add parsed date fields to an issue dict in-place.
-
-    Adds: year (str), month (str), day (str), datetime (datetime | None)
-    Falls back to 'Unknown' / '00' when the date cannot be parsed.
-    """
-    return enrich_with_date(issue, DATE_FORMAT_IN)
-
-
-# ---------------------------------------------------------------------------
-# File system helpers
-# ---------------------------------------------------------------------------
-
-def build_newsletter_path(base_path: Path, issue: dict, yearly: bool, monthly: bool) -> Path:
-    """
-    Construct the output directory for an issue.
-
-    Structure (with both flags enabled):
-        base_path / Wrestling Observer Newsletter / Year / Month /
-    """
-    return build_hierarchical_path(
-        base_path, NEWSLETTER_CATEGORY_NAME, issue.get("year"), issue.get("month"), yearly, monthly
-    )
-
-
-def newsletter_filename(issue: dict, extension: str) -> str:
-    """Build the '<day>-<sanitized-title>.<ext>' filename for a saved issue."""
-    return f"{issue.get('day', '00')}-{sanitize_filename(issue['title'])}.{extension}"

@@ -13,6 +13,7 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 
+from f4wCommon.dates import DATE_FORMAT_IN, DATE_FORMAT_ISO
 from f4wCommon.http import fetch_page as _default_fetch_page
 
 
@@ -44,6 +45,65 @@ def extract_time_element_date(container, iso_fmt: str, out_fmt: str) -> str:
         return dt.strftime(out_fmt)
     except ValueError:
         return ""
+
+
+def scrape_listing_page(
+    url: str,
+    session: requests.Session,
+    link_filter,
+    extra_fields: dict | None = None,
+    date_fallback=None,
+    item_noun: str = "item(s)",
+    fetch_fn=_default_fetch_page,
+) -> list:
+    """
+    Scrape one page of a paginated WordPress archive index.
+
+    Returns a list of dicts: ``{ title, url, date, **extra_fields }``, one per
+    heading link that passes *link_filter*.
+
+    Args:
+        url:           The archive page URL to fetch.
+        session:       Authenticated requests Session.
+        link_filter:   callable(post_url) -> bool. Returning False skips the link.
+        extra_fields:  Static keys merged into every entry (e.g. the show name).
+        date_fallback: Optional callable(post_url) -> str, consulted only when
+                       the listing has no usable <time> element.
+        item_noun:     Plural noun used in the progress log line.
+        fetch_fn:      Injectable page-fetch function.
+    """
+    print(f"  [fetch] {url}")
+    resp = fetch_fn(url, session)
+    if resp is None:
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    entries = []
+
+    for heading in soup.select("h3 a[href], h2 a[href]"):
+        post_url = heading["href"]
+        if not link_filter(post_url):
+            continue
+
+        title = heading.get_text(strip=True)
+        if not title:
+            continue
+
+        # Prefer the ISO datetime attribute on a <time> element for accuracy.
+        container = heading.find_parent("article") or heading.find_parent("div")
+        date_text = extract_time_element_date(container, DATE_FORMAT_ISO, DATE_FORMAT_IN)
+        if not date_text and date_fallback is not None:
+            date_text = date_fallback(post_url)
+
+        entries.append({
+            "title": title,
+            "url": post_url,
+            "date": date_text,
+            **(extra_fields or {}),
+        })
+
+    print(f"  [parse] {len(entries)} {item_noun}")
+    return entries
 
 
 def get_total_pages(page_url_fn, session: requests.Session, fetch_fn=_default_fetch_page) -> int:
