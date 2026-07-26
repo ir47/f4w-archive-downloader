@@ -206,6 +206,18 @@ class TestScrapeIssueDetails(TestCase):
         self.assertEqual("https://members.f4wonline.com/files/issue.pdf", details["pdf_url"])
 
     @patch("newsletterDownloader.util.fetch_page")
+    def test_extracts_pdf_url_with_query_string(self, mock_fetch):
+        html = (
+            '<article><a href="https://members.f4wonline.com/files/issue.pdf?token=abc123">'
+            "Download</a></article>"
+        )
+        mock_fetch.return_value = MagicMock(text=html)
+        details = scrape_issue_details("https://members.f4wonline.com/x/", MagicMock())
+        self.assertEqual(
+            "https://members.f4wonline.com/files/issue.pdf?token=abc123", details["pdf_url"]
+        )
+
+    @patch("newsletterDownloader.util.fetch_page")
     def test_pdf_url_none_when_not_found(self, mock_fetch):
         mock_fetch.return_value = MagicMock(text="<article><p>No pdf here</p></article>")
         details = scrape_issue_details("https://members.f4wonline.com/x/", MagicMock())
@@ -290,6 +302,14 @@ class TestSaveHtml(TestCase):
             dest = Path(tmpdir) / "subdir" / "issue.html"
             save_html("<p>Body</p>", dest, "Title")
             self.assertTrue(dest.exists())
+
+    def test_escapes_title_ampersand_and_angle_brackets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest = Path(tmpdir) / "issue.html"
+            save_html("<p>Body</p>", dest, "Rhodes & Punk <Live>")
+            content = dest.read_text(encoding="utf-8")
+            self.assertIn("<title>Rhodes &amp; Punk &lt;Live&gt;</title>", content)
+            self.assertNotIn("<title>Rhodes & Punk <Live></title>", content)
 
     @patch("pathlib.Path.mkdir", side_effect=OSError("Permission denied"))
     def test_returns_false_on_oserror(self, _mock_mkdir):

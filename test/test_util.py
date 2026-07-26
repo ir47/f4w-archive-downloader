@@ -345,6 +345,18 @@ class TestScrapeEpisodeDetails(TestCase):
         )
 
     @patch("podcastDownloader.util._fetch_page")
+    def test_extracts_mp3_url_with_query_string(self, mock_fetch):
+        mock_fetch.return_value = MagicMock(text="""
+        <html><body>
+        <a href="https://media001.f4wonline.com/dmdocuments/episode.mp3?token=abc123">Download</a>
+        </body></html>
+        """)
+        result = scrape_episode_details("https://example.com/ep/", MagicMock())
+        self.assertEqual(
+            "https://media001.f4wonline.com/dmdocuments/episode.mp3?token=abc123", result["mp3_url"]
+        )
+
+    @patch("podcastDownloader.util._fetch_page")
     def test_extracts_mp3_url_from_page_text(self, mock_fetch):
         mock_fetch.return_value = MagicMock(
             text="audio = 'https://media001.f4wonline.com/dmdocuments/audio.mp3';"

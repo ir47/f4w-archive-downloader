@@ -120,7 +120,7 @@ DEFAULT_DOWNLOAD_PATH = Path.home() / "Downloads" / "F4WPodcasts"
 HTTP_TIMEOUT_THUMBNAIL = 10     # seconds — thumbnail image fetches
 MIN_DESCRIPTION_LENGTH = 40     # minimum paragraph character length to include in description
 
-_MP3_LINK_RE = re.compile(r"f4wonline\.com.*\.mp3$", re.I)
+_MP3_LINK_RE = re.compile(r"f4wonline\.com.*\.mp3(?:\?.*)?$", re.I)
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +286,7 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
         result["mp3_url"] = mp3_tag["href"]
     if not result["mp3_url"]:
         m = re.search(
-            r"https?://media\d+\.f4wonline\.com/dmdocuments/[^\s\"'<>]+\.mp3",
+            r"https?://media\d+\.f4wonline\.com/dmdocuments/[^\s\"'<>]+\.mp3(?:\?[^\s\"'<>]*)?",
             resp.text,
         )
         if m:
@@ -387,6 +387,7 @@ def download_podcast(
     return stream_download(
         mp3_url, dest_path, session, headers=DOWNLOAD_HEADERS,
         timeout=HTTP_TIMEOUT_DOWNLOAD, skip_existing=skip_existing,
+        expected_content_type="audio/",
     )
 
 

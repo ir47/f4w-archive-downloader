@@ -20,6 +20,14 @@ def _make_form(input_names):
     return BeautifulSoup(html, "html.parser").find("form")
 
 
+def _make_typed_form(inputs):
+    """Build a BeautifulSoup <form> from a list of (name, type) tuples."""
+    html = "<form>" + "".join(
+        f'<input name="{name}" type="{itype}"/>' for name, itype in inputs
+    ) + "</form>"
+    return BeautifulSoup(html, "html.parser").find("form")
+
+
 # ---------------------------------------------------------------------------
 # find_input_name
 # ---------------------------------------------------------------------------
@@ -48,6 +56,29 @@ class TestFindInputName(TestCase):
     def test_empty_form_returns_none(self):
         form = BeautifulSoup("<form></form>", "html.parser").find("form")
         self.assertIsNone(find_input_name(form, ["email"]))
+
+    def test_input_types_excludes_hidden_field_matching_candidate(self):
+        # A hidden CSRF field named "login_token" would match the "login"
+        # candidate by substring alone — input_types must exclude it.
+        form = _make_typed_form([("login_token", "hidden"), ("user_email", "text")])
+        result = find_input_name(form, ["email", "login"], input_types=["text", "email"])
+        self.assertEqual("user_email", result)
+
+    def test_input_types_matches_email_type(self):
+        form = _make_typed_form([("username", "email")])
+        result = find_input_name(form, ["user"], input_types=["text", "email"])
+        self.assertEqual("username", result)
+
+    def test_input_types_treats_missing_type_as_text(self):
+        html = '<form><input name="user_email"/></form>'
+        form = BeautifulSoup(html, "html.parser").find("form")
+        result = find_input_name(form, ["email"], input_types=["text", "email"])
+        self.assertEqual("user_email", result)
+
+    def test_input_types_none_does_not_filter(self):
+        form = _make_typed_form([("login_token", "hidden")])
+        result = find_input_name(form, ["login"])
+        self.assertEqual("login_token", result)
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +159,24 @@ class TestLogin(TestCase):
         prompt_fn = MagicMock()
         self.assertTrue(login(session, credentials=("u", "p"), prompt_fn=prompt_fn))
         prompt_fn.assert_not_called()
+
+    def test_resolves_relative_form_action(self):
+        html = """
+        <html><body>
+        <form action="/login/check" method="post">
+            <input name="user_email" type="text"/>
+            <input name="user_password" type="password"/>
+        </form>
+        </body></html>
+        """
+        session = self._mock_session(
+            get_html=html,
+            post_url="https://www.f4wonline.com/dashboard",
+            post_html="<html><body>Welcome</body></html>",
+        )
+        login(session, prompt_fn=lambda: ("u", "p"))
+        post_url = session.post.call_args[0][0]
+        self.assertEqual("https://account.f4wonline.com/login/check", post_url)
 
     def test_uses_custom_login_url(self):
         session = self._mock_session(

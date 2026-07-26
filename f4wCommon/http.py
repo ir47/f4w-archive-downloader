@@ -67,13 +67,22 @@ def fetch_page(
 ) -> requests.Response | None:
     """
     GET a URL using the authenticated session, retrying up to *retries*
-    times on failure. Returns the response, or None if all attempts fail.
+    times on failure. A 4xx client error (page genuinely doesn't exist,
+    forbidden, etc.) is not retried, since retrying can't fix it. Returns
+    the response, or None if all attempts fail.
     """
     for attempt in range(retries):
         try:
             resp = session.get(url, headers=headers or REQUEST_HEADERS, timeout=timeout)
             resp.raise_for_status()
             return resp
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status is not None and 400 <= status < 500:
+                print(f"  [warn] {url} returned {status}, not retrying")
+                return None
+            print(f"  [warn] Request failed ({exc}), attempt {attempt + 1}/{retries}")
+            time.sleep(retry_delay * (attempt + 1))
         except requests.RequestException as exc:
             print(f"  [warn] Request failed ({exc}), attempt {attempt + 1}/{retries}")
             time.sleep(retry_delay * (attempt + 1))
@@ -92,15 +101,28 @@ def stream_download(
     timeout: int = HTTP_TIMEOUT_DOWNLOAD,
     skip_existing: bool = True,
     chunk_size: int = DOWNLOAD_CHUNK_SIZE,
+    expected_content_type: str | None = None,
 ) -> bool:
     """
     Stream a file from *url* to *dest_path* using the authenticated session.
+
+    Writes to a temporary '<name>.part' file and only renames it to
+    *dest_path* on full success, so a network failure partway through (or an
+    empty response) never leaves a corrupt/empty file that a future run's
+    skip-if-exists check would treat as already downloaded.
+
+    Pass *expected_content_type* (e.g. "audio/") to reject a response whose
+    Content-Type doesn't match — catches an expired session serving an HTML
+    login page in place of the real file.
 
     Returns True on success (including skipped files), False on failure.
     """
     if skip_existing and dest_path.exists():
         print(f"  [skip] Already exists: {dest_path.name}")
         return True
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    part_path = dest_path.with_name(dest_path.name + ".part")
 
     try:
         resp = session.get(
@@ -111,11 +133,23 @@ def stream_download(
         )
         resp.raise_for_status()
 
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest_path, "wb") as fh:
+        content_type = resp.headers.get("Content-Type", "")
+        if expected_content_type and not content_type.startswith(expected_content_type):
+            print(
+                f"  [fail] {url} — unexpected Content-Type '{content_type}' "
+                "(session may have expired)"
+            )
+            return False
+
+        with open(part_path, "wb") as fh:
             for chunk in resp.iter_content(chunk_size=chunk_size):
                 fh.write(chunk)
 
+        if part_path.stat().st_size == 0:
+            print(f"  [fail] {url} — downloaded file is empty")
+            return False
+
+        part_path.rename(dest_path)
         size_mb = dest_path.stat().st_size / (1024 * 1024)
         print(f"  [ok]   {dest_path.name}  ({size_mb:.1f} MB)")
         return True
@@ -123,3 +157,5 @@ def stream_download(
     except requests.RequestException as exc:
         print(f"  [fail] {url} — {exc}")
         return False
+    finally:
+        part_path.unlink(missing_ok=True)
