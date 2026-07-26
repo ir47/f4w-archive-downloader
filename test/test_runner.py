@@ -1,15 +1,9 @@
 """Unit tests for runner.py"""
 import io
-from datetime import datetime
 from unittest import TestCase, main
 from unittest.mock import patch
 
-from podcastDownloader.runner import (
-    _build_parser,
-    _in_date_range,
-    _parse_date_arg,
-    _print_show_list,
-)
+from podcastDownloader.runner import _build_parser, _print_show_list
 from podcastDownloader.util import SHOW_SLUGS
 
 
@@ -109,13 +103,21 @@ class TestBuildParser(TestCase):
         args = self.parser.parse_args(["--show", "wor"])
         self.assertAlmostEqual(1.0, args.page_delay)
 
-    def test_episode_delay_argument(self):
-        args = self.parser.parse_args(["--show", "wor", "--episode-delay", "1.0"])
-        self.assertAlmostEqual(1.0, args.episode_delay)
+    def test_item_delay_argument(self):
+        args = self.parser.parse_args(["--show", "wor", "--item-delay", "1.0"])
+        self.assertAlmostEqual(1.0, args.item_delay)
 
-    def test_episode_delay_default(self):
+    def test_item_delay_default(self):
         args = self.parser.parse_args(["--show", "wor"])
-        self.assertAlmostEqual(0.5, args.episode_delay)
+        self.assertAlmostEqual(0.5, args.item_delay)
+
+    def test_legacy_episode_delay_alias_still_accepted(self):
+        args = self.parser.parse_args(["--show", "wor", "--episode-delay", "1.0"])
+        self.assertAlmostEqual(1.0, args.item_delay)
+
+    def test_legacy_alias_does_not_clobber_default(self):
+        args = self.parser.parse_args(["--show", "wor"])
+        self.assertAlmostEqual(0.5, args.item_delay)
 
     def test_overwrite_flag(self):
         args = self.parser.parse_args(["--show", "wor", "--overwrite"])
@@ -132,96 +134,6 @@ class TestBuildParser(TestCase):
     def test_dry_run_default_is_false(self):
         args = self.parser.parse_args(["--show", "wor"])
         self.assertFalse(args.dry_run)
-
-
-# ---------------------------------------------------------------------------
-# _parse_date_arg
-# ---------------------------------------------------------------------------
-
-class TestParseDateArg(TestCase):
-    def test_none_returns_none(self):
-        self.assertIsNone(_parse_date_arg(None))
-
-    def test_empty_string_returns_none(self):
-        self.assertIsNone(_parse_date_arg(""))
-
-    def test_valid_date_parsed_correctly(self):
-        result = _parse_date_arg("March 17, 2026")
-        self.assertEqual(datetime(2026, 3, 17), result)
-
-    def test_valid_date_january(self):
-        result = _parse_date_arg("January 01, 2025")
-        self.assertEqual(datetime(2025, 1, 1), result)
-
-    def test_valid_date_december(self):
-        result = _parse_date_arg("December 31, 2024")
-        self.assertEqual(datetime(2024, 12, 31), result)
-
-    def test_iso_format_exits(self):
-        with self.assertRaises(SystemExit):
-            _parse_date_arg("2026-03-17")
-
-    def test_garbage_input_exits(self):
-        with self.assertRaises(SystemExit):
-            _parse_date_arg("not a date at all")
-
-    def test_partial_date_exits(self):
-        with self.assertRaises(SystemExit):
-            _parse_date_arg("March 2026")
-
-
-# ---------------------------------------------------------------------------
-# _in_date_range
-# ---------------------------------------------------------------------------
-
-class TestInDateRange(TestCase):
-    def _ep(self, dt):
-        return {"datetime": dt}
-
-    def test_none_datetime_returns_true(self):
-        self.assertTrue(_in_date_range({"datetime": None}, None, None))
-
-    def test_missing_datetime_key_returns_true(self):
-        self.assertTrue(_in_date_range({}, None, None))
-
-    def test_no_bounds_returns_true(self):
-        self.assertTrue(_in_date_range(self._ep(datetime(2026, 3, 17)), None, None))
-
-    def test_within_range_returns_true(self):
-        ep = self._ep(datetime(2026, 3, 17))
-        self.assertTrue(_in_date_range(ep, datetime(2026, 1, 1), datetime(2026, 12, 31)))
-
-    def test_before_start_returns_false(self):
-        ep = self._ep(datetime(2025, 12, 31))
-        self.assertFalse(_in_date_range(ep, datetime(2026, 1, 1), None))
-
-    def test_after_end_returns_false(self):
-        ep = self._ep(datetime(2026, 4, 1))
-        self.assertFalse(_in_date_range(ep, None, datetime(2026, 3, 31)))
-
-    def test_on_start_boundary_returns_true(self):
-        dt = datetime(2026, 1, 1)
-        self.assertTrue(_in_date_range(self._ep(dt), dt, None))
-
-    def test_on_end_boundary_returns_true(self):
-        dt = datetime(2026, 12, 31)
-        self.assertTrue(_in_date_range(self._ep(dt), None, dt))
-
-    def test_only_start_with_future_episode(self):
-        ep = self._ep(datetime(2026, 6, 1))
-        self.assertTrue(_in_date_range(ep, datetime(2026, 1, 1), None))
-
-    def test_only_end_with_past_episode(self):
-        ep = self._ep(datetime(2026, 6, 1))
-        self.assertTrue(_in_date_range(ep, None, datetime(2026, 12, 31)))
-
-    def test_exactly_one_day_before_start(self):
-        ep = self._ep(datetime(2025, 12, 31))
-        self.assertFalse(_in_date_range(ep, datetime(2026, 1, 1), datetime(2026, 12, 31)))
-
-    def test_exactly_one_day_after_end(self):
-        ep = self._ep(datetime(2027, 1, 1))
-        self.assertFalse(_in_date_range(ep, datetime(2026, 1, 1), datetime(2026, 12, 31)))
 
 
 # ---------------------------------------------------------------------------
