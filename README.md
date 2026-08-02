@@ -43,13 +43,26 @@ export F4W_PASSWORD="your-password"
 f4w-download --all
 ```
 
-Nothing auto-loads a `.env` file — there is no `python-dotenv` dependency — so if you keep credentials in one, source it yourself first:
+`.env.example` is a template for keeping them in a file instead — copy it and fill in the two values:
+
+```bash
+cp .env.example .env
+```
+
+Nothing auto-loads a `.env` file — there is no `python-dotenv` dependency — so source it yourself first:
 
 ```bash
 set -a; . ./.env; set +a
+f4w-download --all --watch
 ```
 
-`.env` is gitignored. Never commit real credentials.
+That sources the file as a shell script, so wrap the password in single quotes if it contains spaces or any of ``$ # " \ ` `` — otherwise the shell eats them and the login fails with nothing to indicate why:
+
+```bash
+F4W_PASSWORD='my $ecret pa55word'
+```
+
+`.env` is gitignored; `.env.example` is not. Never commit real credentials.
 
 ---
 
