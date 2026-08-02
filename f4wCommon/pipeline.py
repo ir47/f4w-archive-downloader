@@ -16,12 +16,19 @@ import time
 import requests
 
 from pathlib import Path
+from datetime import datetime
 
 from f4wCommon.fsutil import (
     build_item_path,
     generate_download_directories,
     item_filename,
 )
+
+
+# Seconds between feed checks in watch mode. Fifteen minutes is far below the
+# rate the feed turns over (50 items spanning a couple of weeks), so nothing
+# can fall off the end between checks, and an unchanged feed answers 304.
+DEFAULT_POLL_INTERVAL = 900.0
 
 
 def print_dry_run(
@@ -37,6 +44,30 @@ def print_dry_run(
     for item in items:
         folder = build_item_path(output_root, item, yearly, monthly)
         print(f"  {folder / item_filename(item, extension)}")
+
+
+def filter_new_items(
+    items: list,
+    output_root: Path,
+    extension: str,
+    yearly: bool = True,
+    monthly: bool = True,
+) -> list:
+    """
+    Return only the items whose destination file does not exist yet.
+
+    ``run_download_loop`` already skips what is on disk, but a watcher re-reads
+    the same feed every few minutes and would otherwise announce a skip for all
+    fifty of its items on every check. Filtering first keeps an idle watch
+    silent, and lets the caller see when a check found genuinely nothing.
+    """
+    return [
+        item for item in items
+        if not (
+            build_item_path(output_root, item, yearly, monthly)
+            / item_filename(item, extension)
+        ).exists()
+    ]
 
 
 def run_download_loop(
@@ -84,6 +115,61 @@ def run_download_loop(
         time.sleep(item_delay)
 
     return success, skipped, failed
+
+
+def run_watch_loop(
+    check_fn,
+    download_fn,
+    poll_interval: float = DEFAULT_POLL_INTERVAL,
+    once: bool = False,
+    sleep_fn=time.sleep,
+) -> tuple:
+    """
+    Check a source on a timer, downloading whatever it turns up, until
+    interrupted. Returns the cumulative ``(success, skipped, failed)``.
+
+    Args:
+        check_fn:      callable() -> list | None. Items currently available,
+                       [] if nothing has changed, None if the check failed.
+                       The two empty cases are reported differently but both
+                       simply wait for the next round.
+        download_fn:   callable(items) -> (success, skipped, failed). Gets
+                       every item the check returned, not only new ones —
+                       deciding what is already on disk is the download
+                       loop's job, and it is the one place that can tell.
+        poll_interval: Seconds to wait between checks.
+        once:          Check once and return, for running under cron/launchd
+                       rather than as a resident process.
+
+    Ctrl-C is caught rather than raised so a long-running watch still reports
+    its tally on the way out.
+    """
+    totals = [0, 0, 0]
+
+    try:
+        while True:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"\n[{timestamp}] Checking for new releases…")
+
+            items = check_fn()
+            if items is None:
+                print("  [warn] Check failed — will try again next time round.")
+            elif not items:
+                print("  [none] Nothing new.")
+            else:
+                counts = download_fn(items)
+                totals = [total + count for total, count in zip(totals, counts)]
+
+            if once:
+                break
+
+            print(f"  [wait] Next check in {poll_interval:.0f}s.  Ctrl-C to stop.")
+            sleep_fn(poll_interval)
+
+    except KeyboardInterrupt:
+        print("\n\n[stop] Interrupted — shutting down.")
+
+    return tuple(totals)
 
 
 def print_summary(success: int, skipped: int, failed: int, output_root: Path) -> None:

@@ -6,7 +6,13 @@ from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
 
-from f4wCommon.pipeline import print_dry_run, print_summary, run_download_loop
+from f4wCommon.pipeline import (
+    filter_new_items,
+    print_dry_run,
+    print_summary,
+    run_download_loop,
+    run_watch_loop,
+)
 
 
 def _item(title="Ep One", day="17", show="Show A", year="2026", month="March"):
@@ -136,6 +142,118 @@ class TestPrintDryRun(TestCase):
 
     def test_empty_list_still_prints_header(self):
         self.assertIn("DRY RUN", self._capture([]))
+
+
+class TestFilterNewItems(TestCase):
+    def _existing(self, tmpdir, item):
+        path = Path(tmpdir) / item["show"] / item["year"] / item["month"]
+        path.mkdir(parents=True, exist_ok=True)
+        (path / f"{item['day']}-{item['title']}.mp3").touch()
+
+    def test_keeps_items_not_on_disk(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            items = [_item(title="Ep One"), _item(title="Ep Two")]
+            self.assertEqual(2, len(filter_new_items(items, Path(tmpdir), "mp3")))
+
+    def test_drops_items_already_on_disk(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            downloaded, fresh = _item(title="Ep One"), _item(title="Ep Two")
+            self._existing(tmpdir, downloaded)
+            remaining = filter_new_items([downloaded, fresh], Path(tmpdir), "mp3")
+        self.assertEqual(["Ep Two"], [item["title"] for item in remaining])
+
+    def test_respects_the_folder_layout_flags(self):
+        # Written flat, so the default year/month layout must not find it.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            item = _item()
+            flat = Path(tmpdir) / item["show"]
+            flat.mkdir(parents=True)
+            (flat / f"{item['day']}-{item['title']}.mp3").touch()
+            self.assertEqual(1, len(filter_new_items([item], Path(tmpdir), "mp3")))
+            self.assertEqual(
+                0, len(filter_new_items([item], Path(tmpdir), "mp3", yearly=False, monthly=False))
+            )
+
+    def test_empty_input_yields_empty_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual([], filter_new_items([], Path(tmpdir), "mp3"))
+
+
+class TestRunWatchLoop(TestCase):
+    def _run(self, check_fn, download_fn=None, **kwargs):
+        kwargs.setdefault("once", True)
+        kwargs.setdefault("sleep_fn", MagicMock())
+        with patch("sys.stdout", new_callable=io.StringIO) as out:
+            counts = run_watch_loop(
+                check_fn, download_fn or MagicMock(return_value=(0, 0, 0)), **kwargs
+            )
+        return counts, out.getvalue()
+
+    def test_once_checks_a_single_time(self):
+        check = MagicMock(return_value=[])
+        self._run(check)
+        check.assert_called_once()
+
+    def test_once_does_not_sleep(self):
+        sleep = MagicMock()
+        self._run(MagicMock(return_value=[]), sleep_fn=sleep)
+        sleep.assert_not_called()
+
+    def test_items_are_handed_to_the_downloader(self):
+        items = [_item()]
+        download = MagicMock(return_value=(1, 0, 0))
+        self._run(MagicMock(return_value=items), download)
+        download.assert_called_once_with(items)
+
+    def test_returns_the_download_counts(self):
+        counts, _out = self._run(MagicMock(return_value=[_item()]), MagicMock(return_value=(1, 2, 3)))
+        self.assertEqual((1, 2, 3), counts)
+
+    def test_nothing_new_skips_the_downloader(self):
+        download = MagicMock()
+        self._run(MagicMock(return_value=[]), download)
+        download.assert_not_called()
+
+    def test_failed_check_skips_the_downloader(self):
+        download = MagicMock()
+        _counts, output = self._run(MagicMock(return_value=None), download)
+        download.assert_not_called()
+        self.assertIn("Check failed", output)
+
+    def test_failed_check_is_reported_differently_from_nothing_new(self):
+        _counts, nothing_new = self._run(MagicMock(return_value=[]))
+        self.assertIn("Nothing new", nothing_new)
+
+    def test_loops_until_interrupted(self):
+        check = MagicMock(side_effect=[[], [], KeyboardInterrupt()])
+        self._run(check, once=False)
+        self.assertEqual(3, check.call_count)
+
+    def test_sleeps_between_checks(self):
+        sleep = MagicMock()
+        self._run(MagicMock(side_effect=[[], KeyboardInterrupt()]), once=False,
+                  sleep_fn=sleep, poll_interval=42)
+        sleep.assert_called_once_with(42)
+
+    def test_totals_accumulate_across_checks(self):
+        check = MagicMock(side_effect=[[_item()], [_item()], KeyboardInterrupt()])
+        download = MagicMock(side_effect=[(1, 2, 3), (10, 20, 30)])
+        counts, _out = self._run(check, download, once=False)
+        self.assertEqual((11, 22, 33), counts)
+
+    def test_interrupt_while_sleeping_still_returns_totals(self):
+        check = MagicMock(return_value=[_item()])
+        download = MagicMock(return_value=(1, 0, 0))
+        counts, output = self._run(
+            check, download, once=False, sleep_fn=MagicMock(side_effect=KeyboardInterrupt())
+        )
+        self.assertEqual((1, 0, 0), counts)
+        self.assertIn("Interrupted", output)
+
+    def test_a_failed_check_does_not_end_the_watch(self):
+        check = MagicMock(side_effect=[None, [_item()], KeyboardInterrupt()])
+        counts, _out = self._run(check, MagicMock(return_value=(1, 0, 0)), once=False)
+        self.assertEqual((1, 0, 0), counts)
 
 
 class TestPrintSummary(TestCase):

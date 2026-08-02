@@ -25,6 +25,25 @@ def find_content_container(soup: BeautifulSoup):
     return soup.find("div", class_=_CONTENT_DIV_RE) or soup.find("article")
 
 
+def extract_paragraphs(container, min_length: int = 0, limit: int | None = None) -> str:
+    """
+    Join the text of the substantial <p> tags inside *container*, blank-line
+    separated. Paragraphs of *min_length* characters or fewer are dropped
+    (they are almost always bylines, ad slugs or "Right Click Save As"), and
+    at most *limit* are kept. Returns "" when *container* is None.
+    """
+    if container is None:
+        return ""
+    paragraphs = [
+        p.get_text(" ", strip=True)
+        for p in container.find_all("p")
+        if len(p.get_text(strip=True)) > min_length
+    ]
+    if limit is not None:
+        paragraphs = paragraphs[:limit]
+    return "\n\n".join(paragraphs)
+
+
 def extract_time_element_date(container, iso_fmt: str, out_fmt: str) -> str:
     """
     Given a container tag, find a nested <time datetime="..."> element and

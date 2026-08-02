@@ -24,6 +24,7 @@ from f4wCommon.http import (
     stream_download,
 )
 from f4wCommon.scrape import (
+    extract_paragraphs,
     find_content_container,
     get_total_pages,
     scrape_listing_page,
@@ -105,8 +106,17 @@ SHOW_SLUGS: dict = {
 DEFAULT_DOWNLOAD_PATH = Path.home() / "Downloads" / "F4WPodcasts"
 HTTP_TIMEOUT_THUMBNAIL = 10     # seconds — thumbnail image fetches
 MIN_DESCRIPTION_LENGTH = 40     # minimum paragraph character length to include in description
+DESCRIPTION_PARAGRAPHS = 3      # paragraphs of body text kept for the ID3 comment
 
 _MP3_LINK_RE = re.compile(r"f4wonline\.com.*\.mp3(?:\?.*)?$", re.I)
+
+# A bare media-server MP3 URL, for digging one out of raw page or feed markup
+# when there is no anchor to read the href off. Public because the RSS path in
+# feed.py falls back to it when an item ships without an <enclosure>.
+MP3_URL_RE = re.compile(
+    r"https?://media\d+\.f4wonline\.com/dmdocuments/[^\s\"'<>]+\.mp3(?:\?[^\s\"'<>]*)?",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -235,10 +245,7 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
     if mp3_tag:
         result["mp3_url"] = mp3_tag["href"]
     if not result["mp3_url"]:
-        m = re.search(
-            r"https?://media\d+\.f4wonline\.com/dmdocuments/[^\s\"'<>]+\.mp3(?:\?[^\s\"'<>]*)?",
-            resp.text,
-        )
+        m = MP3_URL_RE.search(resp.text)
         if m:
             result["mp3_url"] = m.group(0)
 
@@ -252,13 +259,9 @@ def scrape_episode_details(episode_url: str, session: requests.Session) -> dict:
 
     # Description — first few substantial paragraphs from the article body
     content_div = find_content_container(soup)
-    if content_div:
-        paragraphs = [
-            p.get_text(" ", strip=True)
-            for p in content_div.find_all("p")
-            if len(p.get_text(strip=True)) > MIN_DESCRIPTION_LENGTH
-        ]
-        result["description"] = "\n\n".join(paragraphs[:3])
+    result["description"] = extract_paragraphs(
+        content_div, MIN_DESCRIPTION_LENGTH, DESCRIPTION_PARAGRAPHS
+    )
 
     # Categories — collect from rel="category tag" anchors and common CSS selectors
     categories = []
