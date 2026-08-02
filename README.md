@@ -73,6 +73,13 @@ f4w-download --all --output ~/Podcasts --no-monthly
 
 # Re-download episodes that already exist on disk
 f4w-download --show after-dark --overwrite
+
+# Keep the archive current — watch the RSS feed and download new episodes as
+# they are published (Ctrl-C to stop)
+f4w-download --all --watch
+
+# Check once and exit, for running from cron or launchd
+f4w-download --all --watch --once
 ```
 
 ### All options
@@ -92,8 +99,63 @@ f4w-download --show after-dark --overwrite
 | `--item-delay SECS` | `0.5` | Sleep between episode page requests |
 | `--overwrite` | — | Re-download files that already exist |
 | `--dry-run` | — | Print what would be downloaded without downloading |
+| `--watch`, `-w` | — | Follow the RSS feed, downloading new episodes as they are published |
+| `--poll-interval SECS` | `900` | Seconds between feed checks in watch mode |
+| `--once` | — | With `--watch`, check once and exit instead of looping |
 
 > `--episode-delay` is still accepted as an alias for `--item-delay`, which replaced it when the two downloaders were unified onto one CLI.
+
+---
+
+## Watch mode
+
+Downloading the archive is a one-off job; `--watch` is what keeps it current
+afterwards. It follows the site's podcast RSS feed and downloads each new
+episode as it appears, either as a resident process or as a single scheduled
+check.
+
+```bash
+# Download the archive once…
+f4w-download --all
+
+# …then leave this running to pick up everything published from now on
+f4w-download --all --watch
+```
+
+`--show SLUG` watches that show's feed instead of all of them. The date range,
+output path and folder layout flags all work the same as for an archive run.
+
+**How it decides what is new.** Whatever is on disk is the record — there is no
+state file to keep in sync or lose. Every check compares the feed against the
+destination folder and downloads what is missing, so the first check after an
+archive run also fills in anything published while that run was going. Stopping
+the watcher for a week and restarting it picks up where it left off, as long as
+the gap is shorter than the feed (see the limit below).
+
+**Cost of a check.** The feed carries the MP3 link, host, description, tags and
+artwork for all fifty of its episodes, so a check is a single request and no
+episode pages are fetched at all — a watch run downloads *less* per episode
+than an archive run does. Checks are conditional (`If-None-Match`), so when
+nothing has been published the site answers 304 and sends no body.
+
+**The one limit worth knowing.** The feed only reaches back 50 episodes. Across
+all shows that is roughly two to three weeks, so watch mode cannot rebuild an
+archive and cannot close a gap longer than that — use a dated archive run for
+anything older. A single show's feed reaches back much further.
+
+Ctrl-C stops a watch and prints the usual tally. `--overwrite` is ignored by a
+looping watch, since it would re-download the entire feed on every check; pair
+it with `--once` if you really want a forced pass.
+
+### Running it on a schedule
+
+`--watch --once` checks the feed and exits, which is what you want under cron
+or launchd rather than a resident process:
+
+```cron
+# Check every hour, on the hour
+0 * * * * F4W_USERNAME='you@example.com' F4W_PASSWORD='...' /usr/local/bin/f4w-download --all --watch --once >> ~/f4w-watch.log 2>&1
+```
 
 ---
 
@@ -164,7 +226,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-325 tests, no network access required — every HTTP call is mocked.
+433 tests, no network access required — every HTTP call is mocked.
 
 ### Project structure
 
@@ -176,12 +238,15 @@ f4wCommon/            shared core — site-agnostic
 ├── auth.py           login flow, form-field detection, credential resolution
 ├── cli.py            the argument set both CLIs share, plus login_or_exit()
 ├── dates.py          date formats, parsing, enrichment, range filtering
+├── feed.py           RSS parsing and conditional-GET polling
 ├── fsutil.py         filename sanitising, output path/filename building
 ├── http.py           session, retrying fetch, resumable streaming download
-├── pipeline.py       the download workflow: dry-run, loop, summary
+├── pipeline.py       the download workflow: dry-run, loop, watch loop, summary
 └── scrape.py         WordPress archive helpers: listing pages, pagination
 
 podcastDownloader/    episode scraping, MP3 download, ID3 tagging
+                      feed.py maps RSS items onto the same shapes the
+                      scraper produces, so both feed the one pipeline
 newsletterDownloader/ issue scraping, PDF/HTML saving, Calibre conversion
 ```
 

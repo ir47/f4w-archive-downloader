@@ -23,6 +23,13 @@ python runner.py --all --output ~/Podcasts --no-monthly
 
 # Re-download episodes that already exist on disk:
 python runner.py --show after-dark --overwrite
+
+# Keep an already-downloaded archive current — watch the RSS feed and grab
+# each new episode as it is published (Ctrl-C to stop):
+python runner.py --all --watch
+
+# One check of the feed, then exit — for running from cron or launchd:
+python runner.py --all --watch --once
 """
 
 from __future__ import annotations
@@ -40,10 +47,19 @@ from podcastDownloader.util import (
     scrape_episode_details,
     write_id3_tags,
 )
+from podcastDownloader.feed import create_poller, episodes_from_feed
+from f4wCommon.auth import login
 from f4wCommon.http import create_session
 from f4wCommon.dates import DATE_FORMAT_IN, enrich_with_date, in_date_range
 from f4wCommon.cli import add_common_arguments, login_or_exit, parse_cli_date
-from f4wCommon.pipeline import print_dry_run, print_summary, run_download_loop
+from f4wCommon.pipeline import (
+    DEFAULT_POLL_INTERVAL,
+    filter_new_items,
+    print_dry_run,
+    print_summary,
+    run_download_loop,
+    run_watch_loop,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +99,30 @@ def _build_parser() -> argparse.ArgumentParser:
         item_noun="episode",
         delay_aliases=("--episode-delay",),
     )
+
+    watch = parser.add_argument_group("watch mode")
+    watch.add_argument(
+        "--watch", "-w",
+        action="store_true",
+        help=(
+            "Follow the podcast RSS feed and download each new episode as it "
+            "is published, checking every --poll-interval seconds until "
+            "stopped. Use after downloading the archive to keep it current."
+        ),
+    )
+    watch.add_argument(
+        "--poll-interval",
+        metavar="SECONDS",
+        type=float,
+        default=DEFAULT_POLL_INTERVAL,
+        help=f"Seconds between feed checks in watch mode (default: {DEFAULT_POLL_INTERVAL:.0f}).",
+    )
+    watch.add_argument(
+        "--once",
+        action="store_true",
+        help="With --watch, check the feed once and exit instead of looping "
+             "(for running under cron or launchd).",
+    )
     return parser
 
 
@@ -104,7 +144,7 @@ def _print_show_list() -> None:
 
 def _download_mp3_format(episode: dict, details: dict, dest: Path, session) -> bool:
     """Download the episode MP3 and embed its ID3 tags."""
-    if not details["mp3_url"]:
+    if not details.get("mp3_url"):
         print(f"  [fail] Could not find MP3 link on {episode['url']}")
         return False
 
@@ -179,6 +219,129 @@ def _run_downloads(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Watch workflow
+# ---------------------------------------------------------------------------
+
+def _run_watch(args: argparse.Namespace) -> None:
+    """
+    Follow the RSS feed, downloading each episode that appears in it and is
+    not already on disk.
+
+    The first check downloads everything in the feed that is missing, which is
+    what closes the gap between when an archive run finished and when the
+    watch started. After that it only ever sees the handful published since.
+    """
+    output_root = Path(args.output) if args.output else DEFAULT_DOWNLOAD_PATH
+    start_date = parse_cli_date(args.start)
+    end_date = parse_cli_date(args.end)
+    yearly = not args.no_yearly
+    monthly = not args.no_monthly
+    show_slug = args.show if not args.all else None
+
+    if show_slug and show_slug not in SHOW_SLUGS:
+        print(f"[warn] '{show_slug}' is not a recognised show slug.")
+        _print_show_list()
+        print("Continuing anyway — will watch any feed matching that value.\n")
+
+    if args.max_pages:
+        print("[warn] --max-pages does not apply to watch mode — the feed is a single "
+              "page of the 50 most recent episodes.\n")
+
+    overwrite = args.overwrite
+    if overwrite and not args.once:
+        # Left on, every check would re-download all fifty episodes in the
+        # feed, forever. --once is bounded, so it can keep the flag.
+        print("[warn] --overwrite is ignored by a looping watch (it would re-download "
+              "the whole feed on every check). Use --watch --once to force one pass.\n")
+        overwrite = False
+
+    session = create_session()
+    login_or_exit(session)
+
+    poller = create_poller(session, show_slug)
+    target = SHOW_SLUGS.get(show_slug, show_slug) if show_slug else "all shows"
+    print(f"\nWatching {target} — {poller.url}")
+    print(f"Saving to: {output_root}\n")
+
+    # Set by the download pass, read by the next check: a cycle where
+    # everything failed usually means the login has lapsed rather than that
+    # every file is broken, and the session is only worth rebuilding then.
+    state = {"reauth": False}
+
+    def check():
+        if state["reauth"]:
+            state["reauth"] = False
+            print("  [auth] Refreshing the login before retrying…")
+            if not login(session):
+                print("  [warn] Could not log back in — will retry on the next check.")
+                return None
+
+        items = poller.poll()
+        if items is None:
+            return None
+
+        episodes, details_by_url = episodes_from_feed(items)
+        episodes = [enrich_with_date(ep, DATE_FORMAT_IN) for ep in episodes]
+        episodes = [ep for ep in episodes if in_date_range(ep, start_date, end_date)]
+        if not overwrite:
+            episodes = filter_new_items(episodes, output_root, "mp3", yearly, monthly)
+
+        # Carried on the episode so the download pass can serve details back
+        # without refetching the episode page the feed already described.
+        for episode in episodes:
+            episode["details"] = details_by_url.get(episode["url"], {})
+        return episodes
+
+    def download(episodes):
+        print(f"  [new]  {len(episodes)} episode(s) to download.")
+        counts = run_download_loop(
+            episodes,
+            session,
+            output_root,
+            extension="mp3",
+            handler=_download_mp3_format,
+            scrape_details=lambda url, _session: _feed_details(episodes, url),
+            yearly=yearly,
+            monthly=monthly,
+            overwrite=overwrite,
+            item_delay=args.item_delay,
+        )
+        success, _skipped, failed = counts
+        state["reauth"] = failed > 0 and success == 0
+        return counts
+
+    if args.dry_run:
+        episodes = check()
+        if not episodes:
+            print("Nothing new in the feed.")
+            return
+        print_dry_run(episodes, output_root, "mp3", yearly, monthly, item_noun="episode")
+        return
+
+    success, skipped, failed = run_watch_loop(
+        check,
+        download,
+        poll_interval=args.poll_interval,
+        once=args.once,
+    )
+    print_summary(success, skipped, failed, output_root)
+
+
+def _feed_details(episodes: list, url: str) -> dict:
+    """
+    Serve an episode's details straight from the feed item it came from.
+
+    Stands in for scrape_episode_details in watch mode: the feed already
+    carried the MP3 URL, host, description, tags and artwork, so there is no
+    episode page left to fetch.
+    """
+    for episode in episodes:
+        if episode["url"] == url:
+            return episode.get("details", {})
+    return {}
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -191,7 +354,10 @@ def main() -> None:
         _print_show_list()
         sys.exit(0)
 
-    _run_downloads(args)
+    if args.watch:
+        _run_watch(args)
+    else:
+        _run_downloads(args)
 
 
 if __name__ == "__main__":

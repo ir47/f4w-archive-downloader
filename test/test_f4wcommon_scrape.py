@@ -4,6 +4,7 @@ from unittest import TestCase, main
 from unittest.mock import MagicMock
 
 from f4wCommon.scrape import (
+    extract_paragraphs,
     extract_time_element_date,
     find_content_container,
     get_total_pages,
@@ -59,6 +60,37 @@ class TestExtractTimeElementDate(TestCase):
         soup = BeautifulSoup('<article><time datetime="not-a-date"></time></article>', "html.parser")
         result = extract_time_element_date(soup.find("article"), self.ISO, self.OUT)
         self.assertEqual("", result)
+
+
+# ---------------------------------------------------------------------------
+# extract_paragraphs
+# ---------------------------------------------------------------------------
+
+class TestExtractParagraphs(TestCase):
+    def _container(self, html):
+        return BeautifulSoup(f"<div>{html}</div>", "html.parser").find("div")
+
+    def test_joins_paragraphs_with_blank_lines(self):
+        container = self._container("<p>First para.</p><p>Second para.</p>")
+        self.assertEqual("First para.\n\nSecond para.", extract_paragraphs(container))
+
+    def test_drops_paragraphs_at_or_below_min_length(self):
+        container = self._container("<p>Tiny</p><p>" + "x" * 20 + "</p>")
+        self.assertEqual("x" * 20, extract_paragraphs(container, min_length=10))
+
+    def test_keeps_only_the_first_limit_paragraphs(self):
+        container = self._container("<p>One.</p><p>Two.</p><p>Three.</p>")
+        self.assertEqual("One.\n\nTwo.", extract_paragraphs(container, limit=2))
+
+    def test_strips_inline_markup(self):
+        container = self._container("<p>Bold <strong>text</strong> here.</p>")
+        self.assertEqual("Bold text here.", extract_paragraphs(container))
+
+    def test_none_container_returns_empty_string(self):
+        self.assertEqual("", extract_paragraphs(None))
+
+    def test_container_without_paragraphs_returns_empty_string(self):
+        self.assertEqual("", extract_paragraphs(self._container("<span>No paras</span>")))
 
 
 # ---------------------------------------------------------------------------
